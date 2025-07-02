@@ -5,6 +5,7 @@
 
 import 'reflect-metadata';
 import { Container } from 'inversify';
+import winston from 'winston';
 import { ILogger, IMetricsCollector, ICache, IConfigManager, IRetryHandler, IRateLimiter, IBaseProvider } from '../types/index.js';
 import { Logger, LoggerConfig } from './logger.js';
 import { MetricsCollector } from './metrics-collector.js';
@@ -52,13 +53,26 @@ export function bindDependencies(
   container: Container,
   config: ContainerConfig = {}
 ): void {
-  // Logger サービス
-  if (!container.isBound(TYPES.Logger)) {
-    container.bind<ILogger>(TYPES.Logger)
-      .to(Logger)
-      .inSingletonScope()
-      .whenTargetIsDefault();
-  }
+  // Logger サービス（MCPモードでは標準エラー出力のみ）
+  container.bind<ILogger>(TYPES.Logger)
+    .toDynamicValue(() => {
+      const isMCPMode = process.env.MCP_PROTOCOL === 'stdio';
+      const transports = isMCPMode ? [
+        new winston.transports.Console({
+          stderrLevels: ['debug', 'info', 'warn', 'error', 'fatal'],
+          format: winston.format.combine(
+            winston.format.timestamp(),
+            winston.format.json()
+          )
+        })
+      ] : [];
+      
+      return new Logger({
+        level: config.logLevel as any || 'info',
+        transports
+      });
+    })
+    .inSingletonScope();
 
   // Metrics Collector サービス
   if (!container.isBound(TYPES.MetricsCollector)) {
@@ -228,6 +242,74 @@ export function validateContainer(container: Container): boolean {
       return false;
     }
   });
+}
+
+// デフォルトのコンテナインスタンス
+export const container = createConfiguredContainer();
+
+// setupContainer エイリアス（後方互換性）
+export async function setupContainer(config?: ContainerConfig): Promise<Container> {
+  const newContainer = createConfiguredContainer(config);
+  
+  // MCPサーバーと追加サービスをバインド
+  const { MetricsService } = await import('../services/metrics-service.js');
+  const { CacheService } = await import('../services/cache-service.js');
+  const { SearchService } = await import('../services/search-service.js');
+  const { SynthesisService } = await import('../services/synthesis-service.js');
+  const { MCPServer } = await import('../server/mcp-server.js');
+  
+  type CacheConfig = any;
+  type MCPServerConfig = any;
+  
+  // MCPサーバー設定
+  const mcpConfig: MCPServerConfig = {
+    name: 'claude-code-ai-collab-mcp',
+    version: '1.0.0',
+    capabilities: {
+      tools: true,
+      resources: true,
+      prompts: false,
+      logging: true
+    },
+    server: {
+      protocol: (process.env.MCP_PROTOCOL as 'stdio' | 'sse' | 'websocket') || 'stdio'
+    },
+    providers: {
+      enabled: ['deepseek', 'openai', 'anthropic', 'o3'] as any[],
+      default: (process.env.MCP_DEFAULT_PROVIDER as any) || 'deepseek'
+    },
+    features: {
+      collaboration: true,
+      caching: true,
+      metrics: true,
+      search: true,
+      synthesis: true
+    }
+  };
+  
+  // キャッシュ設定
+  const cacheConfig: CacheConfig = {
+    provider: 'memory',
+    maxSize: 100 * 1024 * 1024, // 100MB
+    defaultTTL: 3600,
+    compression: false,
+    serialization: 'json'
+  };
+  
+  newContainer.bind('MCPServerConfig').toConstantValue(mcpConfig);
+  newContainer.bind(TYPES.MetricsService).to(MetricsService).inSingletonScope();
+  
+  // CacheServiceはファクトリーで作成
+  newContainer.bind(TYPES.CacheService).toDynamicValue((context) => {
+    const logger = context.container.get<Logger>(TYPES.Logger);
+    return new CacheService(logger, cacheConfig);
+  }).inSingletonScope();
+  
+  newContainer.bind(TYPES.SearchService).to(SearchService).inSingletonScope();
+  newContainer.bind(TYPES.SynthesisService).to(SynthesisService).inSingletonScope();
+  newContainer.bind(TYPES.MCPServer).to(MCPServer).inSingletonScope();
+  
+  return newContainer;
 }
 
 /**

@@ -77,7 +77,7 @@ async function callDeepSeek(prompt: string): Promise<string> {
       body: JSON.stringify({
         model: 'deepseek-chat',
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 1000,
+        max_tokens: 4096,
         temperature: 0.7
       })
     });
@@ -86,7 +86,7 @@ async function callDeepSeek(prompt: string): Promise<string> {
       return `Error: DeepSeek API returned ${response.status}`;
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     return data.choices[0].message.content;
   } catch (error) {
     return `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -137,9 +137,8 @@ async function handleRequest(request: any): Promise<any> {
   try {
     switch (method) {
       case 'initialize':
-        return {
+        const initResponse: any = {
           jsonrpc: '2.0',
-          id,
           result: {
             protocolVersion: '2024-11-05',
             capabilities: {
@@ -152,19 +151,21 @@ async function handleRequest(request: any): Promise<any> {
             }
           }
         };
+        if (id !== undefined) initResponse.id = id;
+        return initResponse;
 
       case 'tools/list':
-        return {
+        const toolsResponse: any = {
           jsonrpc: '2.0',
-          id,
           result: { tools }
         };
+        if (id !== undefined) toolsResponse.id = id;
+        return toolsResponse;
 
       case 'tools/call':
         const toolResult = await executeTool(params.name, params.arguments);
-        return {
+        const callResponse: any = {
           jsonrpc: '2.0',
-          id,
           result: {
             content: [
               {
@@ -174,28 +175,35 @@ async function handleRequest(request: any): Promise<any> {
             ]
           }
         };
+        if (id !== undefined) callResponse.id = id;
+        return callResponse;
 
       default:
-        return {
+        const errorResponse: any = {
           jsonrpc: '2.0',
-          id,
           error: {
             code: -32601,
             message: 'Method not found'
           }
         };
+        if (id !== undefined) errorResponse.id = id;
+        return errorResponse;
     }
   } catch (error) {
-    return {
+    const catchResponse: any = {
       jsonrpc: '2.0',
-      id,
       error: {
         code: -32603,
         message: error instanceof Error ? error.message : 'Internal error'
       }
     };
+    if (id !== undefined) catchResponse.id = id;
+    return catchResponse;
   }
 }
+
+import * as readline from 'readline';
+import { fileURLToPath } from 'url';
 
 // メイン関数
 async function main() {
@@ -206,10 +214,10 @@ async function main() {
     process.exit(0);
   }
 
+  // MCPプロトコルでは標準エラー出力にのみログを出力
   console.error('MCP server listening on stdio...');
 
   // Stdio処理
-  const readline = require('readline');
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -235,7 +243,7 @@ async function main() {
 }
 
 // 実行
-if (require.main === module || process.argv[1] === __filename) {
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main().catch(console.error);
 }
 

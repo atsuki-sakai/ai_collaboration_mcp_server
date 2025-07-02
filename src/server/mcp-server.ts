@@ -122,7 +122,7 @@ export class MCPServer {
     @inject(TYPES.MetricsCollector) private metricsCollector: IMetricsCollector,
     @inject(TYPES.SynthesisService) private synthesisService: ISynthesisService,
     @inject(TYPES.SearchService) private searchService: ISearchService,
-    private config: MCPServerConfig
+    @inject('MCPServerConfig') private config: MCPServerConfig
   ) {
     this.initializeHandlers();
     this.logger.info('MCPServer initialized', { name: config.name, version: config.version });
@@ -448,6 +448,33 @@ export class MCPServer {
 
   private async initializeStdioServer(): Promise<void> {
     // stdio トランスポートの実装
+    const readline = await import('readline');
+    
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: false
+    });
+
+    rl.on('line', async (line: string) => {
+      try {
+        const request = JSON.parse(line);
+        const response = await this.handleRequest(request);
+        // 標準出力にJSON-RPCレスポンスを出力
+        console.log(JSON.stringify(response));
+      } catch (error) {
+        const errorResponse = {
+          jsonrpc: '2.0',
+          id: null,
+          error: {
+            code: -32700,
+            message: 'Parse error'
+          }
+        };
+        console.log(JSON.stringify(errorResponse));
+      }
+    });
+
     this.logger.debug('Initialized stdio transport');
   }
 

@@ -22,6 +22,8 @@ export const TYPES = {
   StrategyManager: Symbol.for('StrategyManager'),
   ToolManager: Symbol.for('ToolManager'),
   // Services
+  MetricsService: Symbol.for('IMetricsService'),
+  CacheService: Symbol.for('ICacheService'),
   SynthesisService: Symbol.for('ISynthesisService'),
   SearchService: Symbol.for('ISearchService'),
   // Config

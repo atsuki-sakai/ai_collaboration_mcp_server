@@ -9,6 +9,23 @@ import { IMetricsCollector } from '../types/interfaces.js';
 import { AIProvider, CollaborationResult } from '../types/common.js';
 import { TYPES } from '../core/types.js';
 
+export interface MetricsOptions {
+  enableCollection: boolean;
+  collectionInterval: number;
+  retentionPeriod: number;
+  maxMetricsCount: number;
+  aggregationWindow: number;
+  enableHistograms: boolean;
+  enableExport: boolean;
+  exportFormat: string;
+  exportEndpoint: string;
+}
+
+export interface IMetricsService extends IMetricsCollector {
+  getMetrics(): any;
+  reset(): Promise<void>;
+}
+
 export interface MetricPoint {
   name: string;
   value: number;
@@ -92,7 +109,7 @@ export interface CollaborationMetrics {
 }
 
 @injectable()
-export class MetricsService implements IMetricsCollector {
+export class MetricsService implements IMetricsService {
   private counters = new Map<string, Counter>();
   private gauges = new Map<string, Gauge>();
   private histograms = new Map<string, Histogram>();
@@ -106,8 +123,11 @@ export class MetricsService implements IMetricsCollector {
   private readonly maxMetricPoints = 10000;
   private readonly metricRetentionMs = 24 * 60 * 60 * 1000; // 24時間
 
+  private cleanupInterval?: NodeJS.Timeout;
+
   constructor(
-    @inject(TYPES.Logger) private logger: Logger
+    @inject(TYPES.Logger) private logger: Logger,
+    _options?: MetricsOptions
   ) {
     this.initializeMetrics();
     this.startCleanupScheduler();
@@ -125,7 +145,7 @@ export class MetricsService implements IMetricsCollector {
 
   private startCleanupScheduler(): void {
     // 定期的な古いメトリクスの削除
-    setInterval(() => {
+    this.cleanupInterval = setInterval(() => {
       this.cleanup();
     }, 60 * 60 * 1000); // 1時間ごと
   }
@@ -140,11 +160,25 @@ export class MetricsService implements IMetricsCollector {
   }
 
   incrementCounter(name: string, value: number = 1, labels: Record<string, string> = {}): void {
-    const counter = this.counters.get(name);
-    if (counter) {
-      counter.value += value;
-      this.recordMetricPoint(name, counter.value, 'count', labels);
+    // Create a unique key with tags
+    const tagString = Object.entries(labels)
+      .filter(([k]) => k !== 'description')
+      .map(([k, v]) => `${k}=${v}`)
+      .join('.');
+    const key = tagString ? `${name}.${tagString}` : name;
+
+    let counter = this.counters.get(key);
+    if (!counter) {
+      counter = {
+        name,
+        value: 0,
+        labels
+      };
+      this.counters.set(key, counter);
     }
+    
+    counter.value += value;
+    this.recordMetricPoint(name, counter.value, 'count', labels);
   }
 
   // ゲージ操作
@@ -490,7 +524,7 @@ export class MetricsService implements IMetricsCollector {
   }
 
   increment(name: string, tags?: Record<string, string>): void {
-    this.incrementCounter(name, 1, tags);
+    this.incrementCounter(name, 1, tags || {});
   }
 
   gauge(name: string, value: number, tags?: Record<string, string>): void {
@@ -506,6 +540,104 @@ export class MetricsService implements IMetricsCollector {
   }
 
   decrement(name: string, tags?: Record<string, string>): void {
-    this.incrementCounter(name, -1, tags);
+    this.incrementCounter(name, -1, tags || {});
+  }
+
+  // Test support methods
+  getMetrics(): any {
+    const counters: Record<string, any> = {};
+    const gauges: Record<string, any> = {};
+    const histograms: Record<string, any> = {};
+
+    // Convert counters with tags
+    for (const [key, counter] of this.counters.entries()) {
+      const tagString = Object.entries(counter.labels)
+        .filter(([k]) => k !== 'description')
+        .map(([k, v]) => `${k}=${v}`)
+        .join('.');
+      
+      const metricKey = tagString ? `${key}.${tagString}` : key;
+      counters[metricKey] = {
+        name: key,
+        value: counter.value,
+        labels: counter.labels
+      };
+    }
+
+    // Convert gauges with tags  
+    for (const [key, gauge] of this.gauges.entries()) {
+      const tagString = Object.entries(gauge.labels)
+        .filter(([k]) => k !== 'description')
+        .map(([k, v]) => `${k}=${v}`)
+        .join('.');
+      
+      const metricKey = tagString ? `${key}.${tagString}` : key;
+      gauges[metricKey] = {
+        name: key,
+        value: gauge.value,
+        labels: gauge.labels,
+        timestamp: gauge.timestamp
+      };
+    }
+
+    // Convert histograms
+    for (const [key, histogram] of this.histograms.entries()) {
+      histograms[key] = {
+        buckets: histogram.buckets,
+        count: histogram.count,
+        sum: histogram.sum,
+        mean: histogram.count > 0 ? histogram.sum / histogram.count : 0,
+        min: this.getHistogramMin(key),
+        max: this.getHistogramMax(key),
+        p50: this.getHistogramPercentile(key, 0.5),
+        p95: this.getHistogramPercentile(key, 0.95),
+        p99: this.getHistogramPercentile(key, 0.99)
+      };
+    }
+
+    return {
+      counters,
+      gauges,
+      histograms,
+      metrics: this.metricPoints
+    };
+  }
+
+  async reset(): Promise<void> {
+    // Clear all metrics
+    this.counters.clear();
+    this.gauges.clear();
+    this.histograms.clear();
+    this.metricPoints = [];
+    this.providerMetrics.clear();
+    this.collaborationMetrics.clear();
+
+    // Clear cleanup interval
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      delete this.cleanupInterval;
+    }
+
+    // Reinitialize
+    this.initializeMetrics();
+    this.startCleanupScheduler();
+  }
+
+  private getHistogramMin(name: string): number {
+    const points = this.metricPoints.filter(p => p.name === name);
+    return points.length > 0 ? Math.min(...points.map(p => p.value)) : 0;
+  }
+
+  private getHistogramMax(name: string): number {
+    const points = this.metricPoints.filter(p => p.name === name);
+    return points.length > 0 ? Math.max(...points.map(p => p.value)) : 0;
+  }
+
+  private getHistogramPercentile(name: string, percentile: number): number {
+    const points = this.metricPoints.filter(p => p.name === name).map(p => p.value).sort((a, b) => a - b);
+    if (points.length === 0) return 0;
+    
+    const index = Math.floor(points.length * percentile);
+    return points[Math.min(index, points.length - 1)];
   }
 }
