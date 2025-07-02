@@ -12,8 +12,8 @@ Get up and running with Claude Code AI Collaboration MCP Server in under 5 minut
 
 ```bash
 # Clone and setup in one go
-git clone https://github.com/claude-code-ai-collab/mcp-server.git
-cd mcp-server
+git clone https://github.com/atsuki-sakai/ai_collaboration_mcp_server.git
+cd ai_collaboration_mcp_server
 ./scripts/setup-claude-code.sh --api-key "your-deepseek-api-key"
 ```
 
@@ -29,8 +29,8 @@ cd mcp-server
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/claude-code-ai-collab/mcp-server.git
-cd mcp-server
+git clone https://github.com/atsuki-sakai/ai_collaboration_mcp_server.git
+cd ai_collaboration_mcp_server
 
 # 2. Install dependencies
 pnpm install
@@ -124,8 +124,8 @@ Make it more detailed and accurate for a technical audience.
 
 2. **Verify server works:**
    ```bash
-   cd /path/to/your/project
-   DEEPSEEK_API_KEY="your-key" node dist/index.js --help
+   cd ai_collaboration_mcp_server
+   DEEPSEEK_API_KEY="your-key" node dist/simple-server.js --help
    ```
 
 3. **Check logs:**
@@ -155,7 +155,7 @@ Make it more detailed and accurate for a technical audience.
 
 **"Cannot find module" error:**
 - Make sure you used the full absolute path in config
-- Check that `dist/index.js` exists after building
+- Check that `dist/simple-server.js` or `dist/index.js` exists after building
 
 **"API key invalid" error:**
 - Verify your DeepSeek API key is correct
@@ -176,7 +176,7 @@ Make it more detailed and accurate for a technical audience.
 ## 🆘 Need Help?
 
 - **Documentation**: Check the full [README.md](README.md)
-- **Issues**: [GitHub Issues](https://github.com/claude-code-ai-collab/mcp-server/issues)
+- **Issues**: [GitHub Issues](https://github.com/atsuki-sakai/ai_collaboration_mcp_server/issues)
 - **Configuration**: Review [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## 🎉 Success!

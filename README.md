@@ -2,7 +2,7 @@
 
 A powerful Model Context Protocol (MCP) server that enables AI collaboration through multiple providers with advanced strategies and comprehensive tooling.
 
-[![Build Status](https://github.com/claude-code-ai-collab/mcp-server/workflows/CI/badge.svg)](https://github.com/claude-code-ai-collab/mcp-server/actions)
+[![Build Status](https://github.com/atsuki-sakai/ai_collaboration_mcp_server/workflows/CI/badge.svg)](https://github.com/atsuki-sakai/ai_collaboration_mcp_server/actions)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue.svg)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
@@ -47,8 +47,8 @@ A powerful Model Context Protocol (MCP) server that enables AI collaboration thr
 
 ```bash
 # Clone the repository
-git clone https://github.com/claude-code-ai-collab/mcp-server.git
-cd mcp-server
+git clone https://github.com/atsuki-sakai/ai_collaboration_mcp_server.git
+cd ai_collaboration_mcp_server
 
 # Install dependencies
 pnpm install
@@ -107,10 +107,10 @@ Use the automated setup script for easy configuration:
 
 ```bash
 # Navigate to your project directory
-cd /Users/atsukisakai/Desktop/ThinkHub
+cd /Users/atsukisakai/Desktop/ai_collaboration_mcp_server
 
 # Run automated setup with your DeepSeek API key
-./scripts/setup-claude-code.sh --api-key "sk-4fdsfsadfsafsafdsfsda4ert345345fdsgdsg"
+./scripts/setup-claude-code.sh --api-key "your-deepseek-api-key"
 
 # Or with multiple providers
 ./scripts/setup-claude-code.sh \
@@ -134,7 +134,7 @@ If you prefer manual setup:
 
 ```bash
 # Navigate to your project directory
-cd /Users/atsukisakai/Desktop/ThinkHub
+cd /Users/atsukisakai/Desktop/ai_collaboration_mcp_server
 
 # Install dependencies and build
 pnpm install
@@ -142,9 +142,6 @@ pnpm run build
 
 # Set your DeepSeek API key
 export DEEPSEEK_API_KEY="your-deepseek-api-key"
-
-# Create Claude Code configuration file
-"
 
 # Test the server
 pnpm run verify-deepseek
@@ -154,28 +151,32 @@ pnpm run verify-deepseek
 
 Create or update the Claude Code configuration file:
 
+**Note**: There are two server options:
+- `simple-server.js` - Simple implementation with DeepSeek only (recommended for testing)
+- `index.js` - Full implementation with all providers and features
+
 **macOS/Linux:**
 ```bash
 # Create config directory if it doesn't exist
 mkdir -p ~/.config/claude-code
 
-# Create configuration file
+# Create configuration file (simple server - recommended for testing)
 cat > ~/.config/claude-code/claude_desktop_config.json << 'EOF'
 {
   "mcpServers": {
-    "claude-ai-collab": {
+    "ai-collaboration": {
       "command": "node",
-      "args": ["/path/to/your/project/dist/index.js"],
+      "args": ["/Users/atsukisakai/Desktop/ai_collaboration_mcp_server/dist/simple-server.js"],
       "env": {
-        "DEEPSEEK_API_KEY": "your-deepseek-api-key",
-        "NODE_ENV": "production",
-        "MCP_PROTOCOL": "stdio",
-        "MCP_DEFAULT_PROVIDER": "deepseek"
+        "DEEPSEEK_API_KEY": "your-deepseek-api-key"
       }
     }
   }
 }
 EOF
+
+# Or use the full server for all features
+# Replace simple-server.js with index.js in the args above
 ```
 
 **Windows:**
@@ -192,10 +193,10 @@ mkdir "%APPDATA%\Claude"
 ```json
 {
   "mcpServers": {
-    "claude-ai-collab": {
+    "ai-collaboration": {
       "command": "node",
       "args": [
-        "/absolute/path/to/your/project/dist/index.js",
+        "/Users/atsukisakai/Desktop/ai_collaboration_mcp_server/dist/index.js",
         "--default-provider", "deepseek",
         "--providers", "deepseek,openai"
       ],
@@ -432,6 +433,7 @@ The server uses YAML configuration files with JSON Schema validation. See `confi
 | `DEEPSEEK_API_KEY` | DeepSeek API key | Required |
 | `OPENAI_API_KEY` | OpenAI API key | Optional |
 | `ANTHROPIC_API_KEY` | Anthropic API key | Optional |
+| `O3_API_KEY` | O3 API key (defaults to OPENAI_API_KEY) | Optional |
 | `MCP_PROTOCOL` | Transport protocol | `stdio` |
 | `MCP_DEFAULT_PROVIDER` | Default AI provider | `deepseek` |
 | `NODE_ENV` | Environment mode | `production` |
@@ -518,8 +520,8 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 ```bash
 # Fork and clone the repository
-git clone https://github.com/yourusername/claude-code-ai-collab-mcp.git
-cd claude-code-ai-collab-mcp
+git clone https://github.com/atsuki-sakai/ai_collaboration_mcp_server.git
+cd ai_collaboration_mcp_server
 
 # Install dependencies
 pnpm install
@@ -561,9 +563,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🆘 Support
 
-- **Documentation**: [Wiki](https://github.com/claude-code-ai-collab/mcp-server/wiki)
-- **Issues**: [GitHub Issues](https://github.com/claude-code-ai-collab/mcp-server/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/claude-code-ai-collab/mcp-server/discussions)
+- **Documentation**: [Wiki](https://github.com/atsuki-sakai/ai_collaboration_mcp_server/wiki)
+- **Issues**: [GitHub Issues](https://github.com/atsuki-sakai/ai_collaboration_mcp_server/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/atsuki-sakai/ai_collaboration_mcp_server/discussions)
 - **Email**: support@claude-code-ai-collab.com
 
 ## 🙏 Acknowledgments
