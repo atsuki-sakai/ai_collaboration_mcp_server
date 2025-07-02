@@ -64,7 +64,7 @@ const tools = [
 // DeepSeek API呼び出し
 async function callDeepSeek(prompt: string): Promise<string> {
   if (!DEEPSEEK_API_KEY) {
-    return 'Error: DeepSeek API key is not configured';
+    throw new Error('DeepSeek API key is not configured');
   }
 
   try {
@@ -83,13 +83,13 @@ async function callDeepSeek(prompt: string): Promise<string> {
     });
 
     if (!response.ok) {
-      return `Error: DeepSeek API returned ${response.status}`;
+      throw new Error(`DeepSeek API returned ${response.status}`);
     }
 
     const data: any = await response.json();
     return data.choices[0].message.content;
   } catch (error) {
-    return `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    throw new Error(`DeepSeek API error: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
@@ -194,7 +194,10 @@ async function handleRequest(request: any): Promise<any> {
       jsonrpc: '2.0',
       error: {
         code: -32603,
-        message: error instanceof Error ? error.message : 'Internal error'
+        message: error instanceof Error ? error.message : 'Internal error',
+        data: {
+          details: error instanceof Error ? error.stack : String(error)
+        }
       }
     };
     if (id !== undefined) catchResponse.id = id;
@@ -230,21 +233,41 @@ async function main() {
       const response = await handleRequest(request);
       console.log(JSON.stringify(response));
     } catch (error) {
-      console.log(JSON.stringify({
+      // パースエラーの場合
+      let errorResponse: any = {
         jsonrpc: '2.0',
-        id: null,
         error: {
           code: -32700,
-          message: 'Parse error'
+          message: 'Parse error',
+          data: error instanceof Error ? error.message : String(error)
         }
-      }));
+      };
+      
+      // Try to extract id from the request if possible
+      try {
+        const partialRequest = JSON.parse(line);
+        if (partialRequest.id !== undefined) {
+          errorResponse.id = partialRequest.id;
+        } else {
+          errorResponse.id = null;
+        }
+      } catch {
+        // If we can't parse the request at all, use null for id
+        errorResponse.id = null;
+      }
+      
+      console.log(JSON.stringify(errorResponse));
     }
   });
 }
 
 // 実行
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  main().catch(console.error);
+  main().catch(err => {
+    // エラーを標準エラー出力に送る
+    console.error('Server error:', err);
+    process.exit(1);
+  });
 }
 
 export { main, handleRequest, tools };
