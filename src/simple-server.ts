@@ -64,7 +64,7 @@ const tools = [
 // DeepSeek API呼び出し
 async function callDeepSeek(prompt: string): Promise<string> {
   if (!DEEPSEEK_API_KEY) {
-    throw new Error('DeepSeek API key is not configured');
+    return 'Error: DeepSeek API key is not configured. Please set the DEEPSEEK_API_KEY environment variable.';
   }
 
   try {
@@ -83,13 +83,13 @@ async function callDeepSeek(prompt: string): Promise<string> {
     });
 
     if (!response.ok) {
-      throw new Error(`DeepSeek API returned ${response.status}`);
+      return `Error: DeepSeek API returned ${response.status}`;
     }
 
     const data: any = await response.json();
     return data.choices[0].message.content;
   } catch (error) {
-    throw new Error(`DeepSeek API error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    return `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
   }
 }
 
@@ -133,6 +133,9 @@ async function executeTool(name: string, args: any): Promise<any> {
 // JSON-RPC ハンドラー
 async function handleRequest(request: any): Promise<any> {
   const { method, params, id } = request;
+  
+  // JSON-RPC 2.0では、idがない場合は通知（notification）として扱う
+  const isNotification = id === undefined;
 
   try {
     switch (method) {
@@ -151,7 +154,10 @@ async function handleRequest(request: any): Promise<any> {
             }
           }
         };
-        if (id !== undefined) initResponse.id = id;
+        // 通知でない場合は、idを含める
+        if (!isNotification) {
+          initResponse.id = id === undefined ? null : id;
+        }
         return initResponse;
 
       case 'tools/list':
@@ -159,7 +165,10 @@ async function handleRequest(request: any): Promise<any> {
           jsonrpc: '2.0',
           result: { tools }
         };
-        if (id !== undefined) toolsResponse.id = id;
+        // 通知でない場合は、idを含める
+        if (!isNotification) {
+          toolsResponse.id = id === undefined ? null : id;
+        }
         return toolsResponse;
 
       case 'tools/call':
@@ -175,7 +184,10 @@ async function handleRequest(request: any): Promise<any> {
             ]
           }
         };
-        if (id !== undefined) callResponse.id = id;
+        // 通知でない場合は、idを含める
+        if (!isNotification) {
+          callResponse.id = id === undefined ? null : id;
+        }
         return callResponse;
 
       default:
@@ -186,7 +198,10 @@ async function handleRequest(request: any): Promise<any> {
             message: 'Method not found'
           }
         };
-        if (id !== undefined) errorResponse.id = id;
+        // 通知でない場合は、idを含める（nullでも）
+        if (!isNotification) {
+          errorResponse.id = id === undefined ? null : id;
+        }
         return errorResponse;
     }
   } catch (error) {
@@ -200,7 +215,10 @@ async function handleRequest(request: any): Promise<any> {
         }
       }
     };
-    if (id !== undefined) catchResponse.id = id;
+    // 通知でない場合は、idを含める
+    if (!isNotification) {
+      catchResponse.id = id === undefined ? null : id;
+    }
     return catchResponse;
   }
 }
@@ -211,14 +229,17 @@ import { fileURLToPath } from 'url';
 // メイン関数
 async function main() {
   if (process.argv.includes('--help')) {
-    console.log('Simple MCP Server - Claude Code AI Collaboration');
-    console.log('Usage: node simple-server.js');
-    console.log('Environment: DEEPSEEK_API_KEY=your-api-key');
+    console.error('Simple MCP Server - Claude Code AI Collaboration');
+    console.error('Usage: node simple-server.js');
+    console.error('Environment: DEEPSEEK_API_KEY=your-api-key');
     process.exit(0);
   }
 
   // MCPプロトコルでは標準エラー出力にのみログを出力
-  console.error('MCP server listening on stdio...');
+  // デバッグモードの場合のみログを出力
+  if (process.env.DEBUG === 'true') {
+    console.error('MCP server listening on stdio...');
+  }
 
   // Stdio処理
   const rl = readline.createInterface({
@@ -230,6 +251,12 @@ async function main() {
   rl.on('line', async (line: string) => {
     try {
       const request = JSON.parse(line);
+      
+      // リクエストの基本的なバリデーション
+      if (!request || typeof request !== 'object') {
+        throw new Error('Invalid request format');
+      }
+      
       const response = await handleRequest(request);
       console.log(JSON.stringify(response));
     } catch (error) {
