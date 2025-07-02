@@ -154,10 +154,25 @@ export class MCPServer {
       const initTime = Date.now() - startTime;
       
       this.metricsCollector.timing('server_init_duration_ms', initTime);
-      this.logger.info('MCP Server started successfully', {
-        protocol: this.config.server?.protocol || 'stdio',
-        initTime
-      });
+      
+      // スタンドアロンモードでは詳細な起動メッセージ
+      const isMCPMode = process.env.MCP_PROTOCOL === 'stdio';
+      if (!isMCPMode) {
+        console.log('\n✨ Server started successfully!');
+        console.log(`📡 Protocol: ${this.config.server?.protocol || 'stdio'}`);
+        console.log(`⏱️  Startup time: ${initTime}ms`);
+        console.log('\n💡 Available tools:');
+        console.log('   - collaborate: Multi-provider AI collaboration');
+        console.log('   - review: Content analysis and quality assessment');
+        console.log('   - compare: Side-by-side comparison');
+        console.log('   - refine: Iterative content improvement');
+        console.log('\n🎯 Ready to serve requests!\n');
+      } else {
+        this.logger.info('MCP Server started successfully', {
+          protocol: this.config.server?.protocol || 'stdio',
+          initTime
+        });
+      }
 
     } catch (error) {
       this.metricsCollector.increment('server_start_errors_total');
@@ -407,16 +422,71 @@ export class MCPServer {
 
   private async initializeProviders(): Promise<void> {
     const enabledProviders = this.config.providers?.enabled || [];
+    const isMCPMode = process.env.MCP_PROTOCOL === 'stdio';
+    
+    // スタンドアロンモードでは進捗を表示
+    if (!isMCPMode && enabledProviders.length > 0) {
+      this.logger.info(`Initializing ${enabledProviders.length} AI providers...`);
+    }
+    
+    const results = {
+      success: [] as string[],
+      failed: [] as { provider: string; reason: string }[]
+    };
+    
     for (const provider of enabledProviders) {
       try {
+        const apiKey = process.env[`${provider.toUpperCase()}_API_KEY`] || '';
+        
+        // APIキーが設定されていない場合はスキップ
+        if (!apiKey || apiKey.includes('your-') || apiKey.includes('api-key')) {
+          results.failed.push({
+            provider,
+            reason: 'API key not configured'
+          });
+          continue;
+        }
+        
         // Initialize provider with basic config
         await this.providerManager.initializeProvider(provider, {
-          apiKey: process.env[`${provider.toUpperCase()}_API_KEY`] || '',
+          apiKey,
           baseURL: process.env[`${provider.toUpperCase()}_BASE_URL`] || ''
         });
+        
+        results.success.push(provider);
         this.logger.debug('Provider initialized', { provider });
       } catch (error) {
-        this.logger.warn('Failed to initialize provider', { provider, error: error instanceof Error ? error.message : String(error) });
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        // エラーメッセージを簡潔に
+        const reason = errorMsg.includes('health check failed') 
+          ? 'Health check failed' 
+          : errorMsg.includes('Invalid') || errorMsg.includes('Incorrect')
+          ? 'Invalid API key'
+          : 'Initialization failed';
+          
+        results.failed.push({ provider, reason });
+        
+        // MCPモードでは詳細なエラーログ、スタンドアロンでは簡潔に
+        if (isMCPMode) {
+          this.logger.warn('Failed to initialize provider', { provider, error: errorMsg });
+        }
+      }
+    }
+    
+    // スタンドアロンモードでサマリーを表示
+    if (!isMCPMode) {
+      if (results.success.length > 0) {
+        this.logger.info(`✅ Initialized providers: ${results.success.join(', ')}`);
+      }
+      if (results.failed.length > 0) {
+        const failedSummary = results.failed
+          .map(f => `${f.provider} (${f.reason})`)
+          .join(', ');
+        this.logger.warn(`⚠️  Skipped providers: ${failedSummary}`);
+      }
+      
+      if (results.success.length === 0) {
+        this.logger.warn('⚠️  No providers initialized. Check your API keys in .env file');
       }
     }
   }

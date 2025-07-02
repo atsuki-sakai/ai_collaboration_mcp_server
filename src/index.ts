@@ -5,8 +5,10 @@
  */
 
 import 'reflect-metadata';
-import dotenv from 'dotenv';
-dotenv.config();
+import * as dotenv from 'dotenv';
+
+// dotenvの設定（ログを無効化）
+dotenv.config({ silent: true } as any);
 
 import { setupContainer } from './core/container.js';
 import { MCPServer } from './server/mcp-server.js';
@@ -22,7 +24,15 @@ async function main() {
     
     // ロガーの取得
     logger = container.get<Logger>(TYPES.Logger);
-    logger!.info('Starting MCP Server...');
+    
+    // スタンドアロンモードでのみ起動メッセージを表示
+    const isMCPMode = process.env.MCP_PROTOCOL === 'stdio';
+    if (!isMCPMode) {
+      console.log('\n🚀 Claude Code AI Collaboration MCP Server');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    }
+    
+    logger!.info('Starting server...');
     
     // MCPサーバーの取得と起動
     const server = container.get<MCPServer>(TYPES.MCPServer);

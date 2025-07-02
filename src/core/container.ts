@@ -57,15 +57,70 @@ export function bindDependencies(
   container.bind<ILogger>(TYPES.Logger)
     .toDynamicValue(() => {
       const isMCPMode = process.env.MCP_PROTOCOL === 'stdio';
-      const transports = isMCPMode ? [
+      const isProduction = process.env.NODE_ENV === 'production';
+      
+      // MCPモードでは標準エラー出力にJSON形式で出力
+      if (isMCPMode) {
+        const transports = [
+          new winston.transports.Console({
+            stderrLevels: ['debug', 'info', 'warn', 'error', 'fatal'],
+            format: winston.format.combine(
+              winston.format.timestamp(),
+              winston.format.json()
+            )
+          })
+        ];
+        return new Logger({
+          level: config.logLevel as any || 'info',
+          transports
+        });
+      }
+      
+      // スタンドアロンモードでは読みやすい形式で出力
+      const consoleFormat = winston.format.printf((info: any) => {
+        const { timestamp, level, message, ...metadata } = info;
+        const colorMap: Record<string, string> = {
+          info: '\x1b[36m',     // Cyan
+          warn: '\x1b[33m',     // Yellow
+          error: '\x1b[31m',    // Red
+          debug: '\x1b[90m',    // Gray
+        };
+        const color = colorMap[level] || '\x1b[0m';
+        
+        const reset = '\x1b[0m';
+        
+        // タイムスタンプを短縮形式に
+        const time = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+        
+        let output = `${color}[${time}]${reset} ${message}`;
+        
+        // エラー詳細は簡潔に
+        if (metadata.error && level === 'warn' && typeof metadata.error === 'string') {
+          const errorMsg = metadata.error.split(':')[0];
+          output += ` - ${errorMsg}`;
+        }
+        
+        return output;
+      });
+      
+      const transports = [
         new winston.transports.Console({
-          stderrLevels: ['debug', 'info', 'warn', 'error', 'fatal'],
           format: winston.format.combine(
             winston.format.timestamp(),
-            winston.format.json()
+            consoleFormat
           )
         })
-      ] : [];
+      ];
+      
+      // ファイルローテーションも追加（本番環境のみ）
+      if (isProduction && config.enableRotation !== false) {
+        transports.push(
+          new winston.transports.File({
+            filename: 'logs/application.log',
+            format: winston.format.json()
+          }) as any
+        );
+      }
       
       return new Logger({
         level: config.logLevel as any || 'info',
