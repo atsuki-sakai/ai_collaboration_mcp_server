@@ -35,7 +35,7 @@ A powerful Model Context Protocol (MCP) server that enables AI collaboration thr
 
 ## 🚀 Quick Start
 
-> **📖 New to MCP?** Check out our [Quick Start Guide](QUICKSTART.md) for a 5-minute setup!
+> **📖 New to MCP?** Check out our [Quick Start Guide](docs/QUICKSTART.md) for a 5-minute setup!
 
 ### Prerequisites
 
