@@ -1,0 +1,21 @@
+# Test Configuration
+# Settings for testing environment
+
+server:
+  name: claude-code-ai-collab-mcp
+  version: 1.0.0
+  log_level: debug
+  port: 3001
+
+providers:
+  - name: deepseek
+    enabled: true
+    api_key: ${DEEPSEEK_API_KEY}
+    timeout: 5000
+    max_retries: 1
+
+cache:
+  enabled: false
+
+metrics:
+  enabled: false

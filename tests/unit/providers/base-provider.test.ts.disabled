@@ -1,0 +1,311 @@
+/**
+ * BaseProvider Test Suite - ベースプロバイダークラスのテスト
+ * T006: ベースプロバイダークラスの要件を検証
+ */
+
+import { BaseProvider } from '@/providers/base-provider';
+import { IRetryHandler, IRateLimiter, AIRequest, AIResponse, ProviderCapabilities, AIProvider, ProviderConfig, Timestamp } from '@/types';
+
+// テスト用のモックプロバイダー
+class MockProvider extends BaseProvider {
+  readonly name: AIProvider = 'deepseek';
+  readonly capabilities: ProviderCapabilities = {
+    models: ['test-model'],
+    max_tokens: 4000,
+    supports_streaming: false,
+    supports_functions: false,
+    supports_vision: false,
+    languages: ['en', 'ja']
+  };
+
+  protected async callProvider(request: AIRequest): Promise<AIResponse> {
+    // モック実装
+    return {
+      id: request.id,
+      provider: this.name,
+      model: request.model || 'test-model',
+      content: `Mock response for: ${request.prompt}`,
+      usage: {
+        prompt_tokens: 10,
+        completion_tokens: 20,
+        total_tokens: 30
+      },
+      latency: 100,
+      finish_reason: 'stop',
+      metadata: {
+        request_id: request.id,
+        timestamp: new Date().toISOString() as Timestamp
+      }
+    };
+  }
+}
+
+// テスト用のモックリトライハンドラー
+class MockRetryHandler implements IRetryHandler {
+  async executeWithRetry<T>(operation: () => Promise<T>): Promise<T> {
+    return await operation();
+  }
+
+  getRetryDelay(): number {
+    return 100;
+  }
+}
+
+// テスト用のモックレート制限
+class MockRateLimiter implements IRateLimiter {
+  async checkLimit(): Promise<{ allowed: boolean; remaining: number; reset_at: Timestamp; retry_after?: number }> {
+    return {
+      allowed: true,
+      remaining: 100,
+      reset_at: new Date().toISOString() as Timestamp
+    };
+  }
+
+  async consumeToken(): Promise<boolean> {
+    return true;
+  }
+
+  async getRemainingTokens(): Promise<number> {
+    return 100;
+  }
+
+  async reset(): Promise<void> {
+    // モック実装
+  }
+}
+
+describe('BaseProvider', () => {
+  let provider: MockProvider;
+  let mockRetryHandler: MockRetryHandler;
+  let mockRateLimiter: MockRateLimiter;
+
+  beforeEach(() => {
+    mockRetryHandler = new MockRetryHandler();
+    mockRateLimiter = new MockRateLimiter();
+    provider = new MockProvider();
+    
+    // 依存性を注入（プライベートプロパティなので、テスト用に設定）
+    (provider as any).retryHandler = mockRetryHandler;
+    (provider as any).rateLimiter = mockRateLimiter;
+  });
+
+  describe('基本機能', () => {
+    test('BaseProviderが作成できる', () => {
+      expect(provider).toBeDefined();
+      expect(provider).toBeInstanceOf(BaseProvider);
+    });
+
+    test('名前と機能が正しく定義されている', () => {
+      expect(provider.name).toBe('deepseek');
+      expect(provider.capabilities).toBeDefined();
+      expect(provider.capabilities.models).toContain('test-model');
+    });
+
+    test('統計情報が初期化されている', () => {
+      const stats = provider.getStats();
+      expect(stats.totalRequests).toBe(0);
+      expect(stats.successfulRequests).toBe(0);
+      expect(stats.failedRequests).toBe(0);
+      expect(stats.retryCount).toBe(0);
+      expect(stats.rateLimitHits).toBe(0);
+      expect(stats.averageLatency).toBe(0);
+    });
+  });
+
+  describe('初期化', () => {
+    test('設定で初期化できる', async () => {
+      const config: ProviderConfig = {
+        apiKey: 'test-key',
+        baseUrl: 'https://api.test.com',
+        timeout: 5000,
+        maxRetries: 3
+      };
+
+      await expect(provider.initialize(config)).resolves.toBeUndefined();
+      expect(provider.isHealthy()).toBe(true);
+    });
+
+    test('無効な設定では初期化に失敗する', async () => {
+      const config: ProviderConfig = {};
+
+      await expect(provider.initialize(config)).rejects.toThrow();
+    });
+  });
+
+  describe('AIレスポンス生成', () => {
+    beforeEach(async () => {
+      await provider.initialize({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.test.com'
+      });
+    });
+
+    test('正常なリクエストでレスポンスを生成できる', async () => {
+      const request: AIRequest = {
+        id: 'test-id',
+        prompt: 'Hello, world!',
+        model: 'test-model'
+      };
+
+      const response = await provider.generateResponse(request);
+
+      expect(response).toBeDefined();
+      expect(response.id).toBe('test-id');
+      expect(response.provider).toBe('deepseek');
+      expect(response.content).toContain('Mock response for: Hello, world!');
+      expect(response.usage.total_tokens).toBe(30);
+    });
+
+    test('統計情報が更新される', async () => {
+      const request: AIRequest = {
+        id: 'test-id',
+        prompt: 'Test prompt'
+      };
+
+      await provider.generateResponse(request);
+
+      const stats = provider.getStats();
+      expect(stats.totalRequests).toBe(1);
+      expect(stats.successfulRequests).toBe(1);
+      expect(stats.failedRequests).toBe(0);
+      // averageLatencyは実際の実行時間に依存するため、0以上をチェック
+      expect(stats.averageLatency).toBeGreaterThanOrEqual(0);
+      expect(stats.lastRequestTime).toBeDefined();
+    });
+  });
+
+  describe('バリデーション', () => {
+    test('有効なリクエストはバリデーションを通過する', () => {
+      const request: AIRequest = {
+        id: 'test-id',
+        prompt: 'Valid prompt',
+        model: 'test-model'
+      };
+
+      const result = provider.validateRequest(request);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toBeUndefined();
+    });
+
+    test('無効なリクエストはバリデーションに失敗する', () => {
+      const request: AIRequest = {
+        id: '',
+        prompt: '',
+        model: 'invalid-model'
+      };
+
+      const result = provider.validateRequest(request);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toBeDefined();
+      expect(result.errors!.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('ヘルスステータス', () => {
+    test('初期化後はヘルシー状態', async () => {
+      await provider.initialize({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.test.com'
+      });
+
+      const health = await provider.getHealthStatus();
+      expect(health.healthy).toBe(true);
+      expect(health.latency).toBeDefined();
+    });
+
+    test('未初期化の場合はアンヘルシー状態', async () => {
+      const health = await provider.getHealthStatus();
+      expect(health.healthy).toBe(false);
+    });
+
+    test('isHealthyメソッドが正しく動作する', async () => {
+      expect(provider.isHealthy()).toBe(false);
+
+      await provider.initialize({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.test.com'
+      });
+
+      expect(provider.isHealthy()).toBe(true);
+    });
+  });
+
+  describe('設定更新', () => {
+    test('設定を動的に更新できる', async () => {
+      await provider.initialize({
+        apiKey: 'initial-key',
+        timeout: 5000
+      });
+
+      await provider.updateConfig({
+        timeout: 10000,
+        maxRetries: 5
+      });
+
+      // 設定が更新されていることを確認（内部実装依存）
+      expect(provider.isHealthy()).toBe(true);
+    });
+  });
+
+  describe('統計リセット', () => {
+    test('統計情報をリセットできる', async () => {
+      await provider.initialize({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.test.com'
+      });
+
+      // いくつかのリクエストを実行
+      const request: AIRequest = {
+        id: 'test-id',
+        prompt: 'Test prompt'
+      };
+
+      await provider.generateResponse(request);
+      
+      let stats = provider.getStats();
+      expect(stats.totalRequests).toBe(1);
+
+      // リセット
+      provider.resetStats();
+      
+      stats = provider.getStats();
+      expect(stats.totalRequests).toBe(0);
+      expect(stats.successfulRequests).toBe(0);
+      expect(stats.failedRequests).toBe(0);
+    });
+  });
+
+  describe('エラーハンドリング', () => {
+    test('プロバイダーエラーが適切に処理される', async () => {
+      await provider.initialize({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.test.com'
+      });
+
+      // callProviderがエラーを投げるように設定
+      jest.spyOn(provider as any, 'callProvider').mockRejectedValue(new Error('Provider error'));
+
+      const request: AIRequest = {
+        id: 'test-id',
+        prompt: 'Test prompt'
+      };
+
+      await expect(provider.generateResponse(request)).rejects.toThrow('Provider error');
+
+      const stats = provider.getStats();
+      expect(stats.failedRequests).toBe(1);
+    });
+  });
+
+  describe('廃棄処理', () => {
+    test('リソースを適切に廃棄する', async () => {
+      await provider.initialize({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.test.com'
+      });
+
+      await expect(provider.dispose()).resolves.toBeUndefined();
+      expect(provider.isHealthy()).toBe(false);
+    });
+  });
+});

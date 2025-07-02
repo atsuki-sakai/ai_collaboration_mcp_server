@@ -1,0 +1,442 @@
+/**
+ * DeepSeek Provider Test Suite - DeepSeekプロバイダーのテスト
+ * T007: 具体的なAIプロバイダーの実装テスト
+ */
+
+import 'reflect-metadata';
+import { Container } from 'inversify';
+import { DeepSeekProvider } from '@/providers/deepseek-provider.js';
+import { IRetryHandler, IRateLimiter, AIRequest, ProviderConfig } from '@/types/index.js';
+import { createConfiguredContainer } from '@/core/container.js';
+
+// fetch のモック
+global.fetch = jest.fn();
+
+describe('DeepSeekProvider', () => {
+  let container: Container;
+  let provider: DeepSeekProvider;
+  let mockRetryHandler: jest.Mocked<IRetryHandler>;
+  let mockRateLimiter: jest.Mocked<IRateLimiter>;
+
+  beforeEach(() => {
+    container = createConfiguredContainer();
+    
+    // モックオブジェクトの作成
+    mockRetryHandler = {
+      executeWithRetry: jest.fn(),
+      getRetryDelay: jest.fn()
+    };
+
+    mockRateLimiter = {
+      checkLimit: jest.fn(),
+      consumeToken: jest.fn(),
+      getRemainingTokens: jest.fn(),
+      reset: jest.fn()
+    };
+
+    // DIコンテナにモックをバインド
+    container.rebind(Symbol.for('IRetryHandler')).toConstantValue(mockRetryHandler);
+    container.rebind(Symbol.for('IRateLimiter')).toConstantValue(mockRateLimiter);
+
+    provider = container.resolve(DeepSeekProvider);
+
+    // fetch モックのリセット
+    (global.fetch as jest.Mock).mockClear();
+  });
+
+  describe('基本機能', () => {
+    test('DeepSeekProviderインスタンスが作成できる', () => {
+      expect(provider).toBeDefined();
+      expect(provider).toBeInstanceOf(DeepSeekProvider);
+    });
+
+    test('プロバイダー名とcapabilitiesが正しく設定されている', () => {
+      expect(provider.name).toBe('deepseek');
+      expect(provider.capabilities).toBeDefined();
+      expect(provider.capabilities.models).toContain('deepseek-chat');
+      expect(provider.capabilities.max_tokens).toBe(32768);
+      expect(provider.capabilities.supports_streaming).toBe(true);
+      expect(provider.capabilities.supports_functions).toBe(false);
+      expect(provider.capabilities.supports_vision).toBe(false);
+    });
+  });
+
+  describe('初期化', () => {
+    test('有効なAPIキーで初期化できる', async () => {
+      // ヘルスチェック用のAPIレスポンスをモック
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'test-response',
+          object: 'chat.completion',
+          created: Date.now() / 1000,
+          model: 'deepseek-chat',
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: 'pong' },
+            finish_reason: 'stop'
+          }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+        })
+      });
+
+      const config: ProviderConfig = {
+        apiKey: 'test-deepseek-key',
+        baseUrl: 'https://api.deepseek.com/v1',
+        timeout: 30000
+      };
+
+      await expect(provider.initialize(config)).resolves.not.toThrow();
+    });
+
+    test('APIキーが必須', async () => {
+      const config: ProviderConfig = {
+        baseUrl: 'https://api.deepseek.com/v1'
+      };
+
+      await expect(provider.initialize(config)).rejects.toThrow('API key is required');
+    });
+
+    test('APIヘルスチェックが失敗した場合', async () => {
+      (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Network error'));
+
+      const config: ProviderConfig = {
+        apiKey: 'test-deepseek-key'
+      };
+
+      await expect(provider.initialize(config)).rejects.toThrow('DeepSeek health check failed');
+    });
+  });
+
+  describe('レスポンス生成', () => {
+    beforeEach(async () => {
+      // 正常な初期化をセットアップ
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'health-check',
+          object: 'chat.completion',
+          created: Date.now() / 1000,
+          model: 'deepseek-chat',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'pong' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+        })
+      });
+
+      await provider.initialize({
+        apiKey: 'test-deepseek-key',
+        baseUrl: 'https://api.deepseek.com/v1'
+      });
+
+      // レート制限のモック設定
+      mockRateLimiter.checkLimit.mockResolvedValue({
+        allowed: true,
+        remaining: 99,
+        reset_at: new Date(Date.now() + 60000).toISOString()
+      });
+
+      mockRetryHandler.executeWithRetry.mockImplementation(async (fn) => await fn());
+    });
+
+    test('正常なレスポンス生成', async () => {
+      const request: AIRequest = {
+        id: 'test-request-1',
+        prompt: 'こんにちは、DeepSeekです。',
+        model: 'deepseek-chat',
+        temperature: 0.7,
+        max_tokens: 100
+      };
+
+      const mockResponse = {
+        id: 'deepseek-response-123',
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model: 'deepseek-chat',
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: 'こんにちは！DeepSeekです。どのようにお手伝いできますか？'
+          },
+          finish_reason: 'stop'
+        }],
+        usage: {
+          prompt_tokens: 15,
+          completion_tokens: 25,
+          total_tokens: 40
+        }
+      };
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse
+      });
+
+      const response = await provider.generateResponse(request);
+
+      expect(response).toBeDefined();
+      expect(response.id).toBe('test-request-1');
+      expect(response.provider).toBe('deepseek');
+      expect(response.model).toBe('deepseek-chat');
+      expect(response.content).toBe('こんにちは！DeepSeekです。どのようにお手伝いできますか？');
+      expect(response.usage.total_tokens).toBe(40);
+      expect(response.latency).toBeGreaterThanOrEqual(0);
+      expect(response.finish_reason).toBe('stop');
+      expect(response.metadata?.request_id).toBe('test-request-1');
+    });
+
+    test('API エラーの適切な処理', async () => {
+      const request: AIRequest = {
+        id: 'test-request-1',
+        prompt: 'Test prompt'
+      };
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: async () => 'Unauthorized'
+      });
+
+      await expect(provider.generateResponse(request)).rejects.toThrow('DeepSeek API error');
+    });
+
+    test('ネットワークエラーの処理', async () => {
+      const request: AIRequest = {
+        id: 'test-request-1',
+        prompt: 'Test prompt'
+      };
+
+      (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Network failure'));
+
+      await expect(provider.generateResponse(request)).rejects.toThrow('DeepSeek API error');
+    });
+
+    test('空のレスポンスの処理', async () => {
+      const request: AIRequest = {
+        id: 'test-request-1',
+        prompt: 'Test prompt'
+      };
+
+      const mockResponse = {
+        id: 'deepseek-response-123',
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model: 'deepseek-chat',
+        choices: [],
+        usage: { prompt_tokens: 10, completion_tokens: 0, total_tokens: 10 }
+      };
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse
+      });
+
+      await expect(provider.generateResponse(request)).rejects.toThrow('No response choices returned from DeepSeek API');
+    });
+  });
+
+  describe('HTTP リクエスト処理', () => {
+    beforeEach(async () => {
+      // 初期化をセットアップ
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'health-check',
+          object: 'chat.completion',
+          created: Date.now() / 1000,
+          model: 'deepseek-chat',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'pong' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+        })
+      });
+
+      await provider.initialize({
+        apiKey: 'test-deepseek-key',
+        timeout: 5000
+      });
+    });
+
+    test('正しいHTTPヘッダーが設定される', async () => {
+      const request: AIRequest = {
+        id: 'test-request-1',
+        prompt: 'Test prompt'
+      };
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'test',
+          object: 'chat.completion',
+          created: Date.now() / 1000,
+          model: 'deepseek-chat',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'response' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 }
+        })
+      });
+
+      mockRateLimiter.checkLimit.mockResolvedValue({
+        allowed: true,
+        remaining: 99,
+        reset_at: new Date(Date.now() + 60000).toISOString()
+      });
+
+      mockRetryHandler.executeWithRetry.mockImplementation(async (fn) => await fn());
+
+      await provider.generateResponse(request);
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/chat/completions'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer test-deepseek-key',
+            'User-Agent': 'claude-code-ai-collab-mcp/1.0.0'
+          })
+        })
+      );
+    });
+
+    test('タイムアウトが設定される', async () => {
+      const request: AIRequest = {
+        id: 'test-request-1',
+        prompt: 'Test prompt'
+      };
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'test',
+          object: 'chat.completion',
+          created: Date.now() / 1000,
+          model: 'deepseek-chat',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'response' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 }
+        })
+      });
+
+      mockRateLimiter.checkLimit.mockResolvedValue({
+        allowed: true,
+        remaining: 99,
+        reset_at: new Date(Date.now() + 60000).toISOString()
+      });
+
+      mockRetryHandler.executeWithRetry.mockImplementation(async (fn) => await fn());
+
+      await provider.generateResponse(request);
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          signal: expect.any(AbortSignal)
+        })
+      );
+    });
+  });
+
+  describe('ヘルスチェック', () => {
+    test('正常なヘルスチェック', async () => {
+      // 初期化用のヘルスチェック
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'health-check-init',
+          object: 'chat.completion',
+          created: Date.now() / 1000,
+          model: 'deepseek-chat',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'pong' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+        })
+      });
+
+      await provider.initialize({ apiKey: 'test-key' });
+
+      // getHealthStatus用のヘルスチェック
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'health-check-status',
+          object: 'chat.completion',
+          created: Date.now() / 1000,
+          model: 'deepseek-chat',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'pong' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+        })
+      });
+      
+      const health = await provider.getHealthStatus();
+      expect(health.healthy).toBe(true);
+      expect(health.latency).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('パラメーター変換', () => {
+    beforeEach(async () => {
+      // 初期化をセットアップ
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'health-check',
+          object: 'chat.completion',
+          created: Date.now() / 1000,
+          model: 'deepseek-chat',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'pong' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+        })
+      });
+
+      await provider.initialize({ apiKey: 'test-deepseek-key' });
+
+      mockRateLimiter.checkLimit.mockResolvedValue({
+        allowed: true,
+        remaining: 99,
+        reset_at: new Date(Date.now() + 60000).toISOString()
+      });
+
+      mockRetryHandler.executeWithRetry.mockImplementation(async (fn) => await fn());
+    });
+
+    test('AIRequestパラメーターがDeepSeekAPIパラメーターに正しく変換される', async () => {
+      const request: AIRequest = {
+        id: 'test-request-1',
+        prompt: 'Test prompt',
+        model: 'deepseek-v2-chat',
+        temperature: 0.8,
+        max_tokens: 500,
+        top_p: 0.9,
+        frequency_penalty: 0.5,
+        presence_penalty: 0.3,
+        stop: ['<|end|>']
+      };
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'test',
+          object: 'chat.completion',
+          created: Date.now() / 1000,
+          model: 'deepseek-v2-chat',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'response' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 }
+        })
+      });
+
+      await provider.generateResponse(request);
+
+      const fetchCall = (global.fetch as jest.Mock).mock.calls[1]; // 1番目は初期化用のヘルスチェック
+      const requestBody = JSON.parse(fetchCall[1].body);
+
+      expect(requestBody).toEqual({
+        model: 'deepseek-v2-chat',
+        messages: [{ role: 'user', content: 'Test prompt' }],
+        temperature: 0.8,
+        max_tokens: 500,
+        top_p: 0.9,
+        frequency_penalty: 0.5,
+        presence_penalty: 0.3,
+        stop: ['<|end|>'],
+        stream: false
+      });
+    });
+  });
+});

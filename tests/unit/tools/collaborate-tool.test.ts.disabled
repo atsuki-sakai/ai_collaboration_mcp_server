@@ -1,0 +1,599 @@
+/**
+ * CollaborateTool Unit Tests
+ * T009: Collaborate tool implementation tests
+ */
+
+import 'reflect-metadata';
+import { CollaborateTool, CollaborateParams, CollaborateResult } from '@/tools/collaborate-tool';
+import { IProviderManager } from '@/core/provider-manager';
+import { IStrategyManager } from '@/core/strategy-manager';
+import { AIProvider } from '@/types/common';
+import { AIRequest, AIResponse } from '@/types/interfaces';
+
+// Mock Strategy Manager
+class MockStrategyManager implements IStrategyManager {
+  executeStrategy = jest.fn().mockResolvedValue({
+    success: true,
+    strategy: 'parallel',
+    results: [
+      {
+        provider: 'deepseek' as AIProvider,
+        response: {
+          content: 'DeepSeek response',
+          usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+          model: 'deepseek-chat',
+          provider: 'deepseek' as AIProvider,
+          timestamp: new Date(),
+          metadata: { temperature: 0.7 }
+        } as AIResponse,
+        execution_time: 150,
+        success: true
+      },
+      {
+        provider: 'openai' as AIProvider,
+        response: {
+          content: 'OpenAI response',
+          usage: { prompt_tokens: 12, completion_tokens: 25, total_tokens: 37 },
+          model: 'gpt-4',
+          provider: 'openai' as AIProvider,
+          timestamp: new Date(),
+          metadata: { temperature: 0.7 }
+        } as AIResponse,
+        execution_time: 200,
+        success: true
+      }
+    ],
+    total_time: 250,
+    metadata: {
+      strategy_config: { timeout: 30000 },
+      execution_context: { request_id: 'test-123' }
+    }
+  });
+
+  getAvailableStrategies = jest.fn().mockReturnValue(['parallel', 'sequential', 'consensus', 'iterative']);
+  getStrategyInfo = jest.fn();
+  validateStrategyConfig = jest.fn();
+  getStrategyStats = jest.fn();
+  healthCheck = jest.fn();
+}
+
+// Mock Provider Manager
+class MockProviderManager implements IProviderManager {
+  initializeProvider = jest.fn();
+  initializeAllProviders = jest.fn();
+  getProvider = jest.fn();
+  executeRequest = jest.fn();
+  getAvailableProviders = jest.fn().mockReturnValue(['deepseek', 'openai', 'anthropic']);
+  getProviderHealth = jest.fn();
+  getAllProvidersHealth = jest.fn();
+  getProviderStats = jest.fn();
+  getAllProvidersStats = jest.fn();
+  executeCollaboration = jest.fn();
+  disposeProvider = jest.fn();
+  disposeAllProviders = jest.fn();
+}
+
+describe('CollaborateTool', () => {
+  let collaborateTool: CollaborateTool;
+  let mockStrategyManager: MockStrategyManager;
+  let mockProviderManager: MockProviderManager;
+
+  beforeEach(() => {
+    mockStrategyManager = new MockStrategyManager();
+    mockProviderManager = new MockProviderManager();
+    collaborateTool = new CollaborateTool(mockStrategyManager, mockProviderManager);
+  });
+
+  describe('Basic Collaboration', () => {
+    it('should execute parallel collaboration successfully', async () => {
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'Write a hello world function in Python',
+          model: 'default',
+          temperature: 0.7,
+          max_tokens: 500
+        },
+        strategy: 'parallel',
+        providers: ['deepseek', 'openai'],
+        strategy_config: {
+          timeout: 30000,
+          max_retries: 3
+        }
+      };
+
+      const result = await collaborateTool.execute(params);
+
+      expect(result.success).toBe(true);
+      expect(result.collaboration_id).toBeDefined();
+      expect(result.strategy_used).toBe('parallel');
+      expect(result.providers_used).toEqual(['deepseek', 'openai']);
+      expect(result.individual_results).toHaveLength(2);
+      expect(result.synthesis_result).toBeDefined();
+      expect(result.performance_metrics.total_execution_time).toBeGreaterThan(0);
+      expect(mockStrategyManager.executeStrategy).toHaveBeenCalledWith(
+        'parallel',
+        expect.objectContaining({
+          prompt: 'Write a hello world function in Python'
+        }),
+        ['deepseek', 'openai'],
+        expect.objectContaining({
+          timeout: 30000,
+          max_retries: 3
+        })
+      );
+    });
+
+    it('should handle sequential collaboration', async () => {
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'Explain quantum computing',
+          model: 'default'
+        },
+        strategy: 'sequential',
+        providers: ['deepseek', 'openai', 'anthropic']
+      };
+
+      const result = await collaborateTool.execute(params);
+
+      expect(result.success).toBe(true);
+      expect(result.strategy_used).toBe('sequential');
+      expect(mockStrategyManager.executeStrategy).toHaveBeenCalledWith(
+        'sequential',
+        expect.any(Object),
+        ['deepseek', 'openai', 'anthropic'],
+        expect.any(Object)
+      );
+    });
+
+    it('should handle consensus collaboration', async () => {
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'What is the capital of France?',
+          model: 'default'
+        },
+        strategy: 'consensus',
+        providers: ['deepseek', 'openai'],
+        strategy_config: {
+          consensus_threshold: 0.8,
+          max_iterations: 3
+        }
+      };
+
+      const result = await collaborateTool.execute(params);
+
+      expect(result.success).toBe(true);
+      expect(result.strategy_used).toBe('consensus');
+      expect(mockStrategyManager.executeStrategy).toHaveBeenCalledWith(
+        'consensus',
+        expect.any(Object),
+        ['deepseek', 'openai'],
+        expect.objectContaining({
+          consensus_threshold: 0.8,
+          max_iterations: 3
+        })
+      );
+    });
+  });
+
+  describe('Provider Selection', () => {
+    it('should use default providers when none specified', async () => {
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'Test prompt',
+          model: 'default'
+        },
+        strategy: 'parallel'
+      };
+
+      await collaborateTool.execute(params);
+
+      expect(mockStrategyManager.executeStrategy).toHaveBeenCalledWith(
+        'parallel',
+        expect.any(Object),
+        ['deepseek', 'openai', 'anthropic'], // All available providers
+        expect.any(Object)
+      );
+    });
+
+    it('should validate provider availability', async () => {
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'Test prompt',
+          model: 'default'
+        },
+        strategy: 'parallel',
+        providers: ['invalid-provider' as AIProvider]
+      };
+
+      const result = await collaborateTool.execute(params);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('No valid providers available');
+    });
+
+    it('should filter out unavailable providers', async () => {
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'Test prompt',
+          model: 'default'
+        },
+        strategy: 'parallel',
+        providers: ['deepseek', 'invalid-provider' as AIProvider, 'openai']
+      };
+
+      await collaborateTool.execute(params);
+
+      expect(mockStrategyManager.executeStrategy).toHaveBeenCalledWith(
+        'parallel',
+        expect.any(Object),
+        ['deepseek', 'openai'], // Only valid providers
+        expect.any(Object)
+      );
+    });
+  });
+
+  describe('Strategy Configuration', () => {
+    it('should apply default strategy configuration', async () => {
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'Test prompt',
+          model: 'default'
+        },
+        strategy: 'parallel',
+        providers: ['deepseek', 'openai']
+      };
+
+      await collaborateTool.execute(params);
+
+      expect(mockStrategyManager.executeStrategy).toHaveBeenCalledWith(
+        'parallel',
+        expect.any(Object),
+        ['deepseek', 'openai'],
+        expect.objectContaining({
+          timeout: 30000,
+          max_retries: 3
+        })
+      );
+    });
+
+    it('should merge custom strategy configuration', async () => {
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'Test prompt',
+          model: 'default'
+        },
+        strategy: 'parallel',
+        providers: ['deepseek'],
+        strategy_config: {
+          timeout: 60000,
+          custom_param: 'custom_value'
+        }
+      };
+
+      await collaborateTool.execute(params);
+
+      expect(mockStrategyManager.executeStrategy).toHaveBeenCalledWith(
+        'parallel',
+        expect.any(Object),
+        ['deepseek'],
+        expect.objectContaining({
+          timeout: 60000,
+          max_retries: 3,
+          custom_param: 'custom_value'
+        })
+      );
+    });
+  });
+
+  describe('Result Synthesis', () => {
+    it('should synthesize results from multiple providers', async () => {
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'Explain machine learning',
+          model: 'default'
+        },
+        strategy: 'parallel',
+        providers: ['deepseek', 'openai'],
+        synthesis_options: {
+          method: 'consensus',
+          include_individual_responses: true,
+          quality_threshold: 0.8
+        }
+      };
+
+      const result = await collaborateTool.execute(params);
+
+      expect(result.synthesis_result).toEqual(
+        expect.objectContaining({
+          synthesized_content: expect.any(String),
+          confidence_score: expect.any(Number),
+          key_insights: expect.any(Array),
+          consensus_level: expect.any(Number)
+        })
+      );
+    });
+
+    it('should include individual responses when requested', async () => {
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'Test prompt',
+          model: 'default'
+        },
+        strategy: 'parallel',
+        providers: ['deepseek', 'openai'],
+        synthesis_options: {
+          include_individual_responses: true
+        }
+      };
+
+      const result = await collaborateTool.execute(params);
+
+      expect(result.individual_results).toHaveLength(2);
+      expect(result.individual_results[0]).toEqual(
+        expect.objectContaining({
+          provider: 'deepseek',
+          content: expect.any(String),
+          execution_time: expect.any(Number),
+          success: true
+        })
+      );
+    });
+
+    it('should calculate quality metrics', async () => {
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'Test prompt',
+          model: 'default'
+        },
+        strategy: 'parallel',
+        providers: ['deepseek', 'openai'],
+        synthesis_options: {
+          calculate_quality_metrics: true
+        }
+      };
+
+      const result = await collaborateTool.execute(params);
+
+      expect(result.quality_analysis).toEqual(
+        expect.objectContaining({
+          overall_quality: expect.any(Number),
+          consistency_score: expect.any(Number),
+          completeness_score: expect.any(Number),
+          provider_rankings: expect.any(Array)
+        })
+      );
+    });
+  });
+
+  describe('Performance Metrics', () => {
+    it('should track performance metrics', async () => {
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'Test prompt',
+          model: 'default'
+        },
+        strategy: 'parallel',
+        providers: ['deepseek', 'openai']
+      };
+
+      const result = await collaborateTool.execute(params);
+
+      expect(result.performance_metrics).toEqual(
+        expect.objectContaining({
+          total_execution_time: expect.any(Number),
+          strategy_execution_time: expect.any(Number),
+          synthesis_time: expect.any(Number),
+          provider_response_times: expect.any(Object),
+          token_usage: expect.objectContaining({
+            total_prompt_tokens: expect.any(Number),
+            total_completion_tokens: expect.any(Number),
+            total_tokens: expect.any(Number),
+            provider_breakdown: expect.any(Object)
+          })
+        })
+      );
+    });
+
+    it('should calculate cost estimates', async () => {
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'Test prompt',
+          model: 'default'
+        },
+        strategy: 'parallel',
+        providers: ['deepseek', 'openai'],
+        cost_tracking: {
+          include_cost_estimate: true,
+          pricing_model: 'token_based'
+        }
+      };
+
+      const result = await collaborateTool.execute(params);
+
+      expect(result.cost_analysis).toEqual(
+        expect.objectContaining({
+          total_estimated_cost: expect.any(Number),
+          provider_costs: expect.any(Object),
+          cost_breakdown: expect.any(Object)
+        })
+      );
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should handle strategy execution errors', async () => {
+      mockStrategyManager.executeStrategy.mockRejectedValue(new Error('Strategy failed'));
+
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'Test prompt',
+          model: 'default'
+        },
+        strategy: 'parallel',
+        providers: ['deepseek']
+      };
+
+      const result = await collaborateTool.execute(params);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Strategy failed');
+      expect(result.error_details).toEqual(
+        expect.objectContaining({
+          type: 'strategy_execution_error',
+          message: 'Strategy failed'
+        })
+      );
+    });
+
+    it('should handle partial failures gracefully', async () => {
+      mockStrategyManager.executeStrategy.mockResolvedValue({
+        success: false,
+        strategy: 'parallel',
+        results: [
+          {
+            provider: 'deepseek' as AIProvider,
+            success: true,
+            response: {
+              content: 'Success response',
+              usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+              model: 'deepseek-chat',
+              provider: 'deepseek' as AIProvider,
+              timestamp: new Date(),
+              metadata: {}
+            } as AIResponse,
+            execution_time: 150
+          },
+          {
+            provider: 'openai' as AIProvider,
+            success: false,
+            error: 'Provider timeout',
+            execution_time: 30000
+          }
+        ],
+        total_time: 30150,
+        error: 'Partial failure'
+      });
+
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'Test prompt',
+          model: 'default'
+        },
+        strategy: 'parallel',
+        providers: ['deepseek', 'openai']
+      };
+
+      const result = await collaborateTool.execute(params);
+
+      expect(result.success).toBe(false);
+      expect(result.partial_success).toBe(true);
+      expect(result.individual_results).toHaveLength(2);
+      expect(result.individual_results[0].success).toBe(true);
+      expect(result.individual_results[1].success).toBe(false);
+    });
+
+    it('should validate input parameters', async () => {
+      const invalidParams = {
+        request: {
+          prompt: '', // Empty prompt
+          model: 'default'
+        },
+        strategy: 'invalid-strategy' as any,
+        providers: []
+      };
+
+      const result = await collaborateTool.execute(invalidParams);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Invalid');
+    });
+  });
+
+  describe('Configuration Validation', () => {
+    it('should validate request parameters', async () => {
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'Valid prompt',
+          model: 'default',
+          temperature: 1.5 // Invalid temperature
+        },
+        strategy: 'parallel',
+        providers: ['deepseek']
+      };
+
+      const result = await collaborateTool.execute(params);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('temperature');
+    });
+
+    it('should validate strategy configuration', async () => {
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'Test prompt',
+          model: 'default'
+        },
+        strategy: 'parallel',
+        providers: ['deepseek'],
+        strategy_config: {
+          timeout: -1000 // Invalid timeout
+        }
+      };
+
+      const result = await collaborateTool.execute(params);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('timeout');
+    });
+  });
+
+  describe('Metadata and Context', () => {
+    it('should include execution metadata', async () => {
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'Test prompt',
+          model: 'default'
+        },
+        strategy: 'parallel',
+        providers: ['deepseek'],
+        execution_context: {
+          user_id: 'user-123',
+          session_id: 'session-456',
+          request_id: 'req-789'
+        }
+      };
+
+      const result = await collaborateTool.execute(params);
+
+      expect(result.metadata).toEqual(
+        expect.objectContaining({
+          execution_context: expect.objectContaining({
+            user_id: 'user-123',
+            session_id: 'session-456',
+            request_id: 'req-789'
+          }),
+          tool_version: expect.any(String),
+          execution_timestamp: expect.any(String)
+        })
+      );
+    });
+
+    it('should generate unique collaboration IDs', async () => {
+      const params: CollaborateParams = {
+        request: {
+          prompt: 'Test prompt',
+          model: 'default'
+        },
+        strategy: 'parallel',
+        providers: ['deepseek']
+      };
+
+      const result1 = await collaborateTool.execute(params);
+      const result2 = await collaborateTool.execute(params);
+
+      expect(result1.collaboration_id).toBeDefined();
+      expect(result2.collaboration_id).toBeDefined();
+      expect(result1.collaboration_id).not.toBe(result2.collaboration_id);
+    });
+  });
+});

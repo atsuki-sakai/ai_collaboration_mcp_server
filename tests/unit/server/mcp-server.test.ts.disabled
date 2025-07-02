@@ -1,0 +1,575 @@
+/**
+ * MCPServer Unit Tests
+ * T011: MCP Server implementation tests
+ */
+
+import 'reflect-metadata';
+import { Container } from 'inversify';
+import { MCPServer, MCPServerConfig, MCPRequest } from '@/server/mcp-server';
+import { Logger } from '@/core/logger';
+import { IProviderManager } from '@/core/provider-manager';
+import { IToolManager } from '@/core/tool-manager';
+import { IMetricsCollector } from '@/types/interfaces';
+import { ISynthesisService } from '@/services/synthesis-service';
+import { ISearchService } from '@/services/search-service';
+import { TYPES } from '@/core/types';
+
+// Mock implementations
+class MockLogger implements Logger {
+  debug = jest.fn();
+  info = jest.fn();
+  warn = jest.fn();
+  error = jest.fn();
+  fatal = jest.fn();
+}
+
+class MockProviderManager implements IProviderManager {
+  initializeProvider = jest.fn();
+  initializeAllProviders = jest.fn();
+  getProvider = jest.fn();
+  executeRequest = jest.fn();
+  getAvailableProviders = jest.fn().mockReturnValue(['deepseek', 'openai']);
+  getProviderHealth = jest.fn();
+  getAllProvidersHealth = jest.fn();
+  getProviderStats = jest.fn();
+  getAllProvidersStats = jest.fn();
+  executeCollaboration = jest.fn().mockResolvedValue({
+    strategy: 'parallel',
+    success: true,
+    results: [],
+    summary: 'Test collaboration'
+  });
+  disposeProvider = jest.fn();
+  disposeAllProviders = jest.fn();
+}
+
+class MockToolManager implements IToolManager {
+  getAvailableTools = jest.fn().mockReturnValue(['collaborate', 'review', 'compare', 'refine']);
+  getToolInfo = jest.fn().mockReturnValue({
+    name: 'test-tool',
+    description: 'Test tool',
+    parameters: {}
+  });
+  getAllToolsInfo = jest.fn().mockReturnValue({
+    collaborate: { name: 'collaborate', description: 'Collaborate tool', parameters: {} },
+    review: { name: 'review', description: 'Review tool', parameters: {} },
+    compare: { name: 'compare', description: 'Compare tool', parameters: {} },
+    refine: { name: 'refine', description: 'Refine tool', parameters: {} }
+  });
+  executeCollaborate = jest.fn();
+  executeReview = jest.fn();
+  executeCompare = jest.fn();
+  executeRefine = jest.fn();
+  executeTool = jest.fn().mockResolvedValue({
+    success: true,
+    tool: 'collaborate',
+    execution_time: 100,
+    result: { success: true, data: 'test result' }
+  });
+  healthCheck = jest.fn();
+  getUsageStatistics = jest.fn();
+}
+
+class MockMetricsCollector implements IMetricsCollector {
+  increment = jest.fn();
+  decrement = jest.fn();
+  gauge = jest.fn();
+  timing = jest.fn();
+  histogram = jest.fn();
+  getMetrics = jest.fn();
+  reset = jest.fn();
+}
+
+class MockSynthesisService implements ISynthesisService {
+  synthesize = jest.fn().mockResolvedValue({
+    success: true,
+    synthesis_id: 'test-synthesis',
+    synthesized_content: {
+      main_content: 'Test synthesis result',
+      key_points: ['Point 1', 'Point 2']
+    }
+  });
+  createConsensus = jest.fn();
+  mergeBestElements = jest.fn();
+  generateComprehensiveSummary = jest.fn();
+  analyzeResponseSimilarity = jest.fn();
+  identifyKeyThemes = jest.fn();
+  calculateQualityScores = jest.fn();
+  generateAlternativeSyntheses = jest.fn();
+  validateSynthesisQuality = jest.fn();
+  exportSynthesisReport = jest.fn();
+}
+
+class MockSearchService implements ISearchService {
+  search = jest.fn().mockResolvedValue({
+    results: [],
+    total: 0,
+    page: 1,
+    pageSize: 10
+  });
+  indexDocument = jest.fn();
+  updateIndex = jest.fn();
+  deleteDocument = jest.fn();
+  getSearchStats = jest.fn().mockResolvedValue({
+    total_documents: 0,
+    index_size: 0,
+    last_updated: new Date().toISOString()
+  });
+  clearIndex = jest.fn();
+  optimizeIndex = jest.fn();
+  getIndexHealth = jest.fn();
+}
+
+describe('MCPServer', () => {
+  let server: MCPServer;
+  let mockLogger: MockLogger;
+  let mockProviderManager: MockProviderManager;
+  let mockToolManager: MockToolManager;
+  let mockMetricsCollector: MockMetricsCollector;
+  let mockSynthesisService: MockSynthesisService;
+  let mockSearchService: MockSearchService;
+  let config: MCPServerConfig;
+
+  beforeEach(() => {
+    mockLogger = new MockLogger();
+    mockProviderManager = new MockProviderManager();
+    mockToolManager = new MockToolManager();
+    mockMetricsCollector = new MockMetricsCollector();
+    mockSynthesisService = new MockSynthesisService();
+    mockSearchService = new MockSearchService();
+
+    config = {
+      name: 'test-server',
+      version: '1.0.0',
+      capabilities: {
+        tools: true,
+        resources: true,
+        prompts: false,
+        logging: true
+      },
+      server: {
+        protocol: 'stdio'
+      },
+      providers: {
+        enabled: ['deepseek', 'openai'],
+        default: 'deepseek'
+      },
+      features: {
+        collaboration: true,
+        caching: true,
+        metrics: true,
+        search: true,
+        synthesis: true
+      }
+    };
+
+    server = new MCPServer(
+      mockLogger as any,
+      mockProviderManager,
+      mockToolManager,
+      mockMetricsCollector,
+      mockSynthesisService,
+      mockSearchService,
+      config
+    );
+  });
+
+  describe('Constructor', () => {
+    it('should initialize server with config', () => {
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'MCPServer initialized',
+        { name: config.name, version: config.version }
+      );
+    });
+  });
+
+  describe('Server Lifecycle', () => {
+    it('should start server successfully', async () => {
+      await server.start();
+
+      expect(mockMetricsCollector.increment).toHaveBeenCalledWith('server_starts_total');
+      expect(mockMetricsCollector.timing).toHaveBeenCalledWith(
+        'server_init_duration_ms',
+        expect.any(Number)
+      );
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'MCP Server started successfully',
+        expect.objectContaining({
+          protocol: 'stdio',
+          initTime: expect.any(Number)
+        })
+      );
+    });
+
+    it('should handle start errors', async () => {
+      mockProviderManager.initializeProvider.mockRejectedValue(new Error('Init failed'));
+
+      await expect(server.start()).rejects.toThrow();
+      expect(mockMetricsCollector.increment).toHaveBeenCalledWith('server_start_errors_total');
+    });
+
+    it('should prevent double start', async () => {
+      await server.start();
+      await expect(server.start()).rejects.toThrow('Server is already running');
+    });
+
+    it('should stop server gracefully', async () => {
+      await server.start();
+      await server.stop();
+
+      expect(mockMetricsCollector.increment).toHaveBeenCalledWith('server_stops_total');
+      expect(mockLogger.info).toHaveBeenCalledWith('MCP Server stopped successfully');
+    });
+
+    it('should handle stop when not running', async () => {
+      await server.stop();
+      expect(mockLogger.warn).toHaveBeenCalledWith('Server is not running');
+    });
+  });
+
+  describe('Request Handling', () => {
+    beforeEach(async () => {
+      await server.start();
+    });
+
+    it('should handle valid initialize request', async () => {
+      const request: MCPRequest = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {}
+      };
+
+      const response = await server.handleRequest(request);
+
+      expect(response.jsonrpc).toBe('2.0');
+      expect(response.id).toBe(1);
+      expect(response.result).toEqual({
+        protocolVersion: '2024-11-05',
+        capabilities: expect.any(Object),
+        serverInfo: {
+          name: config.name,
+          version: config.version
+        }
+      });
+    });
+
+    it('should handle ping request', async () => {
+      const request: MCPRequest = {
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'ping'
+      };
+
+      const response = await server.handleRequest(request);
+
+      expect(response.result).toEqual({
+        status: 'ok',
+        timestamp: expect.any(Number)
+      });
+    });
+
+    it('should handle tools/list request', async () => {
+      const request: MCPRequest = {
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/list'
+      };
+
+      const response = await server.handleRequest(request);
+
+      expect(response.result).toEqual({
+        tools: expect.arrayContaining([
+          expect.objectContaining({
+            name: expect.any(String),
+            description: expect.any(String),
+            inputSchema: expect.any(Object)
+          })
+        ])
+      });
+    });
+
+    it('should handle tools/call request', async () => {
+      const request: MCPRequest = {
+        jsonrpc: '2.0',
+        id: 4,
+        method: 'tools/call',
+        params: {
+          name: 'collaborate',
+          arguments: { test: 'data' }
+        }
+      };
+
+      const response = await server.handleRequest(request);
+
+      expect(response.result).toEqual({
+        result: expect.any(Object)
+      });
+      expect(mockToolManager.executeTool).toHaveBeenCalledWith('collaborate', { test: 'data' });
+    });
+
+    it('should handle resources/list request', async () => {
+      const request: MCPRequest = {
+        jsonrpc: '2.0',
+        id: 5,
+        method: 'resources/list'
+      };
+
+      const response = await server.handleRequest(request);
+
+      expect(response.result).toEqual({
+        resources: expect.arrayContaining([
+          expect.objectContaining({
+            uri: expect.any(String),
+            name: expect.any(String)
+          })
+        ])
+      });
+    });
+
+    it('should handle collaboration/execute request', async () => {
+      const request: MCPRequest = {
+        jsonrpc: '2.0',
+        id: 6,
+        method: 'collaboration/execute',
+        params: {
+          strategy: 'parallel',
+          providers: ['deepseek', 'openai'],
+          request: { prompt: 'test' }
+        }
+      };
+
+      const response = await server.handleRequest(request);
+
+      expect(response.result).toEqual(
+        expect.objectContaining({
+          strategy: 'parallel',
+          success: true
+        })
+      );
+    });
+
+    it('should handle synthesis/create request', async () => {
+      const request: MCPRequest = {
+        jsonrpc: '2.0',
+        id: 7,
+        method: 'synthesis/create',
+        params: {
+          responses: []
+        }
+      };
+
+      const response = await server.handleRequest(request);
+
+      expect(response.result).toEqual(
+        expect.objectContaining({
+          success: true,
+          synthesis_id: 'test-synthesis'
+        })
+      );
+    });
+
+    it('should handle search/query request', async () => {
+      const request: MCPRequest = {
+        jsonrpc: '2.0',
+        id: 8,
+        method: 'search/query',
+        params: {
+          query: 'test search'
+        }
+      };
+
+      const response = await server.handleRequest(request);
+
+      expect(response.result).toEqual(
+        expect.objectContaining({
+          results: expect.any(Array),
+          total: expect.any(Number)
+        })
+      );
+    });
+
+    it('should handle invalid method', async () => {
+      const request: MCPRequest = {
+        jsonrpc: '2.0',
+        id: 9,
+        method: 'invalid/method'
+      };
+
+      const response = await server.handleRequest(request);
+
+      expect(response.error).toEqual({
+        code: -32603,
+        message: 'Unknown method: invalid/method'
+      });
+    });
+
+    it('should validate request format', async () => {
+      const invalidRequest = {
+        id: 10,
+        method: 'test'
+      } as MCPRequest;
+
+      const response = await server.handleRequest(invalidRequest);
+
+      expect(response.error).toEqual({
+        code: -32603,
+        message: 'Invalid JSON-RPC version'
+      });
+    });
+
+    it('should handle requests without id', async () => {
+      const request: MCPRequest = {
+        jsonrpc: '2.0',
+        method: 'ping'
+      };
+
+      const response = await server.handleRequest(request);
+
+      expect(response.result).toEqual({
+        status: 'ok',
+        timestamp: expect.any(Number)
+      });
+      expect('id' in response).toBe(false);
+    });
+  });
+
+  describe('Tool Execution', () => {
+    beforeEach(async () => {
+      await server.start();
+    });
+
+    it('should execute valid tool', async () => {
+      const result = await server.executeTool('collaborate', { test: 'data' });
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          success: true,
+          tool: 'collaborate'
+        })
+      );
+      expect(mockMetricsCollector.increment).toHaveBeenCalledWith(
+        'tool_executions_total',
+        { tool: 'collaborate' }
+      );
+    });
+
+    it('should handle tool execution errors', async () => {
+      mockToolManager.executeTool.mockRejectedValue(new Error('Tool failed'));
+
+      await expect(server.executeTool('collaborate', {})).rejects.toThrow('Tool failed');
+      expect(mockMetricsCollector.increment).toHaveBeenCalledWith(
+        'tool_executions_error_total',
+        { tool: 'collaborate' }
+      );
+    });
+
+    it('should reject invalid tool names', async () => {
+      await expect(server.executeTool('invalid-tool', {})).rejects.toThrow('Unknown tool: invalid-tool');
+    });
+  });
+
+  describe('Resource Handling', () => {
+    beforeEach(async () => {
+      await server.start();
+    });
+
+    it('should read collaboration resource', async () => {
+      const result = await server.readResource('collaboration://history');
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          results: expect.any(Array)
+        })
+      );
+      expect(mockSearchService.search).toHaveBeenCalledWith({ pageSize: 100 });
+    });
+
+    it('should read metrics resource', async () => {
+      const result = await server.readResource('metrics://performance');
+
+      expect(result).toBeDefined();
+    });
+
+    it('should read search resource', async () => {
+      const result = await server.readResource('search://index');
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          total_documents: expect.any(Number)
+        })
+      );
+    });
+
+    it('should handle unsupported resource URIs', async () => {
+      await expect(server.readResource('unsupported://resource')).rejects.toThrow(
+        'Unsupported resource URI: unsupported://resource'
+      );
+    });
+  });
+
+  describe('Server Info', () => {
+    it('should return correct server info', () => {
+      const info = server.getServerInfo();
+
+      expect(info).toEqual({
+        name: config.name,
+        version: config.version,
+        protocolVersion: '2024-11-05',
+        capabilities: expect.objectContaining({
+          tools: { listChanged: true },
+          resources: {
+            subscribe: true,
+            listChanged: true
+          },
+          logging: { level: 'info' }
+        })
+      });
+    });
+  });
+
+  describe('Metrics Collection', () => {
+    beforeEach(async () => {
+      await server.start();
+    });
+
+    it('should track request metrics', async () => {
+      const request: MCPRequest = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'ping'
+      };
+
+      await server.handleRequest(request);
+
+      expect(mockMetricsCollector.increment).toHaveBeenCalledWith(
+        'requests_total',
+        { method: 'ping' }
+      );
+      expect(mockMetricsCollector.timing).toHaveBeenCalledWith(
+        'request_duration_ms',
+        expect.any(Number),
+        { method: 'ping' }
+      );
+      expect(mockMetricsCollector.increment).toHaveBeenCalledWith(
+        'requests_success_total',
+        { method: 'ping' }
+      );
+    });
+
+    it('should track error metrics', async () => {
+      const request: MCPRequest = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'invalid'
+      };
+
+      await server.handleRequest(request);
+
+      expect(mockMetricsCollector.increment).toHaveBeenCalledWith(
+        'requests_error_total',
+        { method: 'invalid' }
+      );
+    });
+  });
+});

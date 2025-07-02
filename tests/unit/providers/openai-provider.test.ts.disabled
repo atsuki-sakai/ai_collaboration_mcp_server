@@ -1,0 +1,507 @@
+/**
+ * OpenAI Provider Test Suite - OpenAIプロバイダーのテスト
+ * T007: 具体的なAIプロバイダーの実装テスト
+ */
+
+import { Container } from 'inversify';
+import { OpenAIProvider } from '@/providers/openai-provider';
+import { IRetryHandler, IRateLimiter, AIRequest, ProviderConfig } from '@/types';
+import { createConfiguredContainer } from '@/core/container';
+
+// fetch のモック
+global.fetch = jest.fn();
+
+describe('OpenAIProvider', () => {
+  let container: Container;
+  let provider: OpenAIProvider;
+  let mockRetryHandler: jest.Mocked<IRetryHandler>;
+  let mockRateLimiter: jest.Mocked<IRateLimiter>;
+
+  beforeEach(() => {
+    container = createConfiguredContainer();
+    
+    // モックオブジェクトの作成
+    mockRetryHandler = {
+      executeWithRetry: jest.fn(),
+      getRetryDelay: jest.fn()
+    };
+
+    mockRateLimiter = {
+      checkLimit: jest.fn(),
+      consumeToken: jest.fn(),
+      getRemainingTokens: jest.fn(),
+      reset: jest.fn()
+    };
+
+    // DIコンテナにモックをバインド
+    container.rebind(Symbol.for('IRetryHandler')).toConstantValue(mockRetryHandler);
+    container.rebind(Symbol.for('IRateLimiter')).toConstantValue(mockRateLimiter);
+
+    provider = container.resolve(OpenAIProvider);
+
+    // fetch モックのリセット
+    (global.fetch as jest.Mock).mockClear();
+  });
+
+  describe('基本機能', () => {
+    test('OpenAIProviderインスタンスが作成できる', () => {
+      expect(provider).toBeDefined();
+      expect(provider).toBeInstanceOf(OpenAIProvider);
+    });
+
+    test('プロバイダー名とcapabilitiesが正しく設定されている', () => {
+      expect(provider.name).toBe('openai');
+      expect(provider.capabilities).toBeDefined();
+      expect(provider.capabilities.models).toContain('gpt-4');
+      expect(provider.capabilities.models).toContain('gpt-3.5-turbo');
+      expect(provider.capabilities.max_tokens).toBe(128000);
+      expect(provider.capabilities.supports_streaming).toBe(true);
+      expect(provider.capabilities.supports_functions).toBe(true);
+      expect(provider.capabilities.supports_vision).toBe(true);
+    });
+  });
+
+  describe('初期化', () => {
+    test('有効なAPIキーで初期化できる', async () => {
+      // ヘルスチェック用のAPIレスポンスをモック
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'test-response',
+          object: 'chat.completion',
+          created: Date.now() / 1000,
+          model: 'gpt-3.5-turbo-16k',
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: 'pong' },
+            finish_reason: 'stop'
+          }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+        })
+      });
+
+      const config: ProviderConfig = {
+        apiKey: 'sk-test-openai-key',
+        baseUrl: 'https://api.openai.com/v1',
+        timeout: 60000,
+        organizationId: 'org-test123'
+      };
+
+      await expect(provider.initialize(config)).resolves.not.toThrow();
+    });
+
+    test('APIキーが必須', async () => {
+      const config: ProviderConfig = {
+        baseUrl: 'https://api.openai.com/v1'
+      };
+
+      await expect(provider.initialize(config)).rejects.toThrow('API key is required');
+    });
+
+    test('APIヘルスチェックが失敗した場合', async () => {
+      (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Network error'));
+
+      const config: ProviderConfig = {
+        apiKey: 'sk-test-openai-key'
+      };
+
+      await expect(provider.initialize(config)).rejects.toThrow('OpenAI health check failed');
+    });
+  });
+
+  describe('レスポンス生成', () => {
+    beforeEach(async () => {
+      // 正常な初期化をセットアップ
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'health-check',
+          object: 'chat.completion',
+          created: Date.now() / 1000,
+          model: 'gpt-3.5-turbo-16k',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'pong' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+        })
+      });
+
+      await provider.initialize({
+        apiKey: 'sk-test-openai-key',
+        baseUrl: 'https://api.openai.com/v1'
+      });
+
+      // レート制限のモック設定
+      mockRateLimiter.checkLimit.mockResolvedValue({
+        allowed: true,
+        remaining: 99,
+        reset_at: new Date(Date.now() + 60000).toISOString()
+      });
+
+      mockRetryHandler.executeWithRetry.mockImplementation(async (fn) => await fn());
+    });
+
+    test('正常なレスポンス生成', async () => {
+      const request: AIRequest = {
+        id: 'test-request-1',
+        prompt: 'Hello, OpenAI!',
+        model: 'gpt-4',
+        temperature: 0.7,
+        max_tokens: 100
+      };
+
+      const mockResponse = {
+        id: 'chatcmpl-123',
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model: 'gpt-4',
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: 'Hello! How can I help you today?'
+          },
+          finish_reason: 'stop'
+        }],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 18,
+          total_tokens: 30
+        },
+        system_fingerprint: 'fp_123abc'
+      };
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse
+      });
+
+      const response = await provider.generateResponse(request);
+
+      expect(response).toBeDefined();
+      expect(response.id).toBe('test-request-1');
+      expect(response.provider).toBe('openai');
+      expect(response.model).toBe('gpt-4');
+      expect(response.content).toBe('Hello! How can I help you today?');
+      expect(response.usage.total_tokens).toBe(30);
+      expect(response.latency).toBeGreaterThanOrEqual(0);
+      expect(response.finish_reason).toBe('stop');
+      expect(response.metadata?.request_id).toBe('test-request-1');
+      expect(response.metadata?.system_fingerprint).toBe('fp_123abc');
+    });
+
+    test('レート制限エラーの適切な処理', async () => {
+      const request: AIRequest = {
+        id: 'test-request-1',
+        prompt: 'Test prompt'
+      };
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        text: async () => 'Rate limit exceeded'
+      });
+
+      await expect(provider.generateResponse(request)).rejects.toThrow('Rate limit exceeded');
+    });
+
+    test('認証エラーの適切な処理', async () => {
+      const request: AIRequest = {
+        id: 'test-request-1',
+        prompt: 'Test prompt'
+      };
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: async () => 'Invalid API key'
+      });
+
+      await expect(provider.generateResponse(request)).rejects.toThrow('Authentication failed');
+    });
+
+    test('サーバーエラーの適切な処理', async () => {
+      const request: AIRequest = {
+        id: 'test-request-1',
+        prompt: 'Test prompt'
+      };
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => 'Internal server error'
+      });
+
+      await expect(provider.generateResponse(request)).rejects.toThrow('OpenAI server error');
+    });
+
+    test('ネットワークエラーの処理', async () => {
+      const request: AIRequest = {
+        id: 'test-request-1',
+        prompt: 'Test prompt'
+      };
+
+      (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Network failure'));
+
+      await expect(provider.generateResponse(request)).rejects.toThrow('OpenAI API error');
+    });
+
+    test('空のレスポンスの処理', async () => {
+      const request: AIRequest = {
+        id: 'test-request-1',
+        prompt: 'Test prompt'
+      };
+
+      const mockResponse = {
+        id: 'chatcmpl-123',
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model: 'gpt-4',
+        choices: [],
+        usage: { prompt_tokens: 10, completion_tokens: 0, total_tokens: 10 }
+      };
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse
+      });
+
+      await expect(provider.generateResponse(request)).rejects.toThrow('No response choices returned from OpenAI API');
+    });
+  });
+
+  describe('HTTP リクエスト処理', () => {
+    beforeEach(async () => {
+      // 初期化をセットアップ
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'health-check',
+          object: 'chat.completion',
+          created: Date.now() / 1000,
+          model: 'gpt-3.5-turbo-16k',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'pong' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+        })
+      });
+
+      await provider.initialize({
+        apiKey: 'sk-test-openai-key',
+        organizationId: 'org-test123',
+        timeout: 60000
+      });
+    });
+
+    test('正しいHTTPヘッダーが設定される（組織ID含む）', async () => {
+      const request: AIRequest = {
+        id: 'test-request-1',
+        prompt: 'Test prompt'
+      };
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'test',
+          object: 'chat.completion',
+          created: Date.now() / 1000,
+          model: 'gpt-4',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'response' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 }
+        })
+      });
+
+      mockRateLimiter.checkLimit.mockResolvedValue({
+        allowed: true,
+        remaining: 99,
+        reset_at: new Date(Date.now() + 60000).toISOString()
+      });
+
+      mockRetryHandler.executeWithRetry.mockImplementation(async (fn) => await fn());
+
+      await provider.generateResponse(request);
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/chat/completions'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer sk-test-openai-key',
+            'User-Agent': 'claude-code-ai-collab-mcp/1.0.0',
+            'OpenAI-Organization': 'org-test123'
+          })
+        })
+      );
+    });
+
+    test('タイムアウトが設定される', async () => {
+      const request: AIRequest = {
+        id: 'test-request-1',
+        prompt: 'Test prompt'
+      };
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'test',
+          object: 'chat.completion',
+          created: Date.now() / 1000,
+          model: 'gpt-4',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'response' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 }
+        })
+      });
+
+      mockRateLimiter.checkLimit.mockResolvedValue({
+        allowed: true,
+        remaining: 99,
+        reset_at: new Date(Date.now() + 60000).toISOString()
+      });
+
+      mockRetryHandler.executeWithRetry.mockImplementation(async (fn) => await fn());
+
+      await provider.generateResponse(request);
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          signal: expect.any(AbortSignal)
+        })
+      );
+    });
+  });
+
+  describe('ヘルスチェック', () => {
+    test('正常なヘルスチェック', async () => {
+      // 初期化用のヘルスチェック
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'health-check-init',
+          object: 'chat.completion',
+          created: Date.now() / 1000,
+          model: 'gpt-3.5-turbo-16k',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'pong' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+        })
+      });
+
+      await provider.initialize({ apiKey: 'sk-test-key' });
+
+      // getHealthStatus用のヘルスチェック
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'health-check-status',
+          object: 'chat.completion',
+          created: Date.now() / 1000,
+          model: 'gpt-3.5-turbo-16k',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'pong' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+        })
+      });
+      
+      const health = await provider.getHealthStatus();
+      expect(health.healthy).toBe(true);
+      expect(health.latency).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('OpenAI特有のメソッド', () => {
+    test('トークン数の推定', async () => {
+      const englishText = 'Hello world';
+      const japaneseText = 'こんにちは世界';
+      
+      const englishTokens = await provider.estimateTokens(englishText);
+      const japaneseTokens = await provider.estimateTokens(japaneseText);
+      
+      expect(englishTokens).toBeGreaterThan(0);
+      expect(japaneseTokens).toBeGreaterThan(0);
+      
+      // 日本語は英語よりもトークン密度が高い
+      expect(japaneseTokens).toBeGreaterThan(englishTokens);
+    });
+
+    test('モデルの検証', async () => {
+      expect(await provider.validateModel('gpt-4')).toBe(true);
+      expect(await provider.validateModel('gpt-3.5-turbo')).toBe(true);
+      expect(await provider.validateModel('invalid-model')).toBe(false);
+    });
+
+    test('モデル別最大トークン数の取得', () => {
+      expect(provider.getMaxTokensForModel('gpt-4')).toBe(8192);
+      expect(provider.getMaxTokensForModel('gpt-4-turbo')).toBe(128000);
+      expect(provider.getMaxTokensForModel('gpt-3.5-turbo')).toBe(4096);
+      expect(provider.getMaxTokensForModel('gpt-3.5-turbo-16k')).toBe(16384);
+      expect(provider.getMaxTokensForModel('unknown-model')).toBe(128000); // デフォルト値
+    });
+  });
+
+  describe('パラメーター変換', () => {
+    beforeEach(async () => {
+      // 初期化をセットアップ
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'health-check',
+          object: 'chat.completion',
+          created: Date.now() / 1000,
+          model: 'gpt-3.5-turbo-16k',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'pong' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+        })
+      });
+
+      await provider.initialize({ apiKey: 'sk-test-openai-key' });
+
+      mockRateLimiter.checkLimit.mockResolvedValue({
+        allowed: true,
+        remaining: 99,
+        reset_at: new Date(Date.now() + 60000).toISOString()
+      });
+
+      mockRetryHandler.executeWithRetry.mockImplementation(async (fn) => await fn());
+    });
+
+    test('AIRequestパラメーターがOpenAIAPIパラメーターに正しく変換される', async () => {
+      const request: AIRequest = {
+        id: 'test-request-1',
+        prompt: 'Test prompt with parameters',
+        model: 'gpt-4-turbo',
+        temperature: 0.8,
+        max_tokens: 500,
+        top_p: 0.9,
+        frequency_penalty: 0.5,
+        presence_penalty: 0.3,
+        stop: ['<|end|>', 'STOP']
+      };
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'test',
+          object: 'chat.completion',
+          created: Date.now() / 1000,
+          model: 'gpt-4-turbo',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'response' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 }
+        })
+      });
+
+      await provider.generateResponse(request);
+
+      const fetchCall = (global.fetch as jest.Mock).mock.calls[1]; // 1番目は初期化用のヘルスチェック
+      const requestBody = JSON.parse(fetchCall[1].body);
+
+      expect(requestBody).toEqual({
+        model: 'gpt-4-turbo',
+        messages: [{ role: 'user', content: 'Test prompt with parameters' }],
+        temperature: 0.8,
+        max_tokens: 500,
+        top_p: 0.9,
+        frequency_penalty: 0.5,
+        presence_penalty: 0.3,
+        stop: ['<|end|>', 'STOP'],
+        stream: false
+      });
+    });
+  });
+});

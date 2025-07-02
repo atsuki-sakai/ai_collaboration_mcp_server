@@ -1,0 +1,106 @@
+# Development Configuration
+# Settings optimized for development environment
+
+server:
+  name: claude-code-ai-collab-mcp
+  version: 1.0.0
+  log_level: debug
+  port: 3000
+  host: localhost
+
+providers:
+  - name: deepseek
+    enabled: true
+    timeout: 10000
+    max_retries: 1
+    
+  - name: anthropic
+    enabled: true
+    timeout: 10000
+    max_retries: 1
+    
+  - name: openai
+    enabled: false  # Disabled by default in dev to reduce costs
+
+strategies:
+  timeout: 30000
+  max_iterations: 2
+
+cache:
+  enabled: true
+  type: memory
+  ttl: 1800  # 30 minutes
+  max_size: 100
+
+metrics:
+  enabled: true
+  collection_interval: 5000
+
+search:
+  enabled: true
+  indexing_batch_size: 10
+
+synthesis:
+  enabled: true
+  quality_threshold: 0.5  # Lower threshold for faster development
+
+logging:
+  level: debug
+  format: text
+  console:
+    enabled: true
+    colorize: true
+  file:
+    enabled: true
+    filename: dev-mcp-server.log
+    max_size: 5242880  # 5MB
+    max_files: 3
+
+development:
+  debug_mode: true
+  verbose_logging: true
+  mock_providers: false
+  disable_cache: false
+  enable_profiling: true
+  
+  testing:
+    mock_responses: false
+    deterministic_ids: true
+    fixed_timestamps: false
+
+performance:
+  timeouts:
+    request: 10000
+    provider: 10000
+    strategy: 30000
+    total: 60000
+    
+  concurrency:
+    max_concurrent_requests: 5
+    max_concurrent_providers: 2
+    queue_size: 50
+
+features:
+  collaboration: true
+  caching: true
+  metrics: true
+  search: true
+  synthesis: true
+  backup: false  # Disabled in dev
+  health_checks: true
+  auto_scaling: false
+
+tools:
+  enabled:
+    - collaborate
+    - review
+    - compare
+    - refine
+  
+  collaborate:
+    max_providers: 2
+    timeout: 30000
+  
+  review:
+    require_consensus: false
+    min_reviewers: 1

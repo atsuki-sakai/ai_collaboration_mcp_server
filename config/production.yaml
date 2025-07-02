@@ -1,0 +1,34 @@
+# Production Configuration
+# Overrides for production environment
+
+server:
+  name: claude-code-ai-collab-mcp
+  version: 1.0.0
+  log_level: warn
+  port: ${PORT}
+  host: 0.0.0.0
+
+providers:
+  - name: deepseek
+    enabled: true
+    timeout: 60000
+    max_retries: 5
+
+  - name: anthropic
+    enabled: true
+    timeout: 60000
+    max_retries: 5
+
+  - name: openai
+    enabled: true
+    timeout: 60000
+    max_retries: 5
+
+cache:
+  type: redis
+  ttl: 7200
+  max_size: 10000
+
+metrics:
+  enabled: true
+  collection_interval: 10000

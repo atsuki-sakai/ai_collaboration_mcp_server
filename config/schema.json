@@ -1,0 +1,541 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://claude-code-ai-collab-mcp.com/config-schema.json",
+  "title": "Claude Code AI Collaboration MCP Server Configuration Schema",
+  "description": "JSON Schema for validating MCP server configuration files",
+  "type": "object",
+  "properties": {
+    "server": {
+      "type": "object",
+      "description": "Server basic configuration",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Server name",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "description": "Server version",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$"
+        },
+        "log_level": {
+          "type": "string",
+          "description": "Logging level",
+          "enum": ["debug", "info", "warn", "error", "fatal"]
+        },
+        "host": {
+          "type": "string",
+          "description": "Server host",
+          "default": "localhost"
+        },
+        "port": {
+          "type": ["integer", "string"],
+          "description": "Server port number or environment variable",
+          "minimum": 1000,
+          "maximum": 65535
+        }
+      },
+      "required": ["name", "version"],
+      "additionalProperties": false
+    },
+    "providers": {
+      "type": "array",
+      "description": "AI provider configurations",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Provider name",
+            "enum": ["deepseek", "openai", "anthropic", "o3"]
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the provider is enabled",
+            "default": true
+          },
+          "api_key": {
+            "type": "string",
+            "description": "API key or environment variable reference",
+            "minLength": 1
+          },
+          "base_url": {
+            "type": "string",
+            "description": "Provider API base URL",
+            "format": "uri"
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Request timeout in milliseconds",
+            "minimum": 1000,
+            "maximum": 300000,
+            "default": 30000
+          },
+          "max_retries": {
+            "type": "integer",
+            "description": "Maximum number of retries",
+            "minimum": 0,
+            "maximum": 10,
+            "default": 3
+          },
+          "default_model": {
+            "type": "string",
+            "description": "Default model to use",
+            "minLength": 1
+          },
+          "rate_limit": {
+            "type": "object",
+            "description": "Rate limiting configuration",
+            "properties": {
+              "requests_per_minute": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "tokens_per_minute": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "models": {
+            "type": "array",
+            "description": "Available models",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "required": ["name", "enabled"],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "strategies": {
+      "type": "object",
+      "description": "Execution strategy configurations",
+      "properties": {
+        "default": {
+          "type": "string",
+          "description": "Default strategy",
+          "enum": ["parallel", "sequential", "consensus", "iterative"]
+        },
+        "timeout": {
+          "type": "integer",
+          "description": "Default strategy timeout in milliseconds",
+          "minimum": 1000,
+          "default": 60000
+        },
+        "max_iterations": {
+          "type": "integer",
+          "description": "Maximum iterations for iterative strategies",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 3
+        },
+        "consensus_threshold": {
+          "type": "number",
+          "description": "Consensus threshold for consensus strategy",
+          "minimum": 0.1,
+          "maximum": 1.0,
+          "default": 0.7
+        },
+        "parallel": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "max_concurrent": { "type": "integer", "minimum": 1, "maximum": 10 },
+            "timeout": { "type": "integer", "minimum": 1000 }
+          },
+          "additionalProperties": false
+        },
+        "sequential": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "fail_fast": { "type": "boolean" },
+            "timeout": { "type": "integer", "minimum": 1000 }
+          },
+          "additionalProperties": false
+        },
+        "consensus": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "consensus_threshold": { "type": "number", "minimum": 0.1, "maximum": 1.0 },
+            "max_iterations": { "type": "integer", "minimum": 1, "maximum": 10 },
+            "timeout": { "type": "integer", "minimum": 1000 }
+          },
+          "additionalProperties": false
+        },
+        "iterative": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "improvement_threshold": { "type": "number", "minimum": 0.01, "maximum": 1.0 },
+            "max_iterations": { "type": "integer", "minimum": 1, "maximum": 20 },
+            "timeout": { "type": "integer", "minimum": 1000 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "cache": {
+      "type": "object",
+      "description": "Cache configuration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether caching is enabled",
+          "default": true
+        },
+        "type": {
+          "type": "string",
+          "description": "Cache type",
+          "enum": ["memory", "redis", "file"],
+          "default": "memory"
+        },
+        "ttl": {
+          "type": "integer",
+          "description": "Time-to-live in seconds",
+          "minimum": 60,
+          "default": 3600
+        },
+        "max_size": {
+          "type": "integer",
+          "description": "Maximum cache size",
+          "minimum": 10,
+          "default": 1000
+        },
+        "memory": {
+          "type": "object",
+          "properties": {
+            "max_memory_usage": { "type": "integer", "minimum": 10 },
+            "eviction_policy": { "type": "string", "enum": ["lru", "lfu", "fifo"] },
+            "cleanup_interval": { "type": "integer", "minimum": 60 }
+          },
+          "additionalProperties": false
+        },
+        "redis": {
+          "type": "object",
+          "properties": {
+            "host": { "type": "string" },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "db": { "type": "integer", "minimum": 0, "maximum": 15 },
+            "password": { "type": "string" },
+            "connect_timeout": { "type": "integer", "minimum": 1000 }
+          },
+          "additionalProperties": false
+        },
+        "file": {
+          "type": "object",
+          "properties": {
+            "directory": { "type": "string" },
+            "max_file_size": { "type": "integer", "minimum": 1 },
+            "compression": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "metrics": {
+      "type": "object",
+      "description": "Metrics collection configuration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether metrics collection is enabled",
+          "default": true
+        },
+        "collection_interval": {
+          "type": "integer",
+          "description": "Metrics collection interval in milliseconds",
+          "minimum": 1000,
+          "default": 5000
+        },
+        "retention_period": {
+          "type": "integer",
+          "description": "Metrics retention period in milliseconds",
+          "minimum": 3600000,
+          "default": 86400000
+        },
+        "export": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "format": { "type": "string", "enum": ["prometheus", "json", "opentelemetry"] },
+            "endpoint": { "type": "string" },
+            "interval": { "type": "integer", "minimum": 1000 }
+          },
+          "additionalProperties": false
+        },
+        "collect": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "requests",
+              "response_times",
+              "token_usage",
+              "error_rates",
+              "provider_performance",
+              "cache_hit_rates"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "search": {
+      "type": "object",
+      "description": "Search service configuration",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "index_type": { "type": "string", "enum": ["memory", "elasticsearch", "file"] },
+        "max_results_per_query": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "default_page_size": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "indexing_batch_size": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "full_text": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "stemming": {
+              "type": "object",
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "language": { "type": "string" }
+              }
+            },
+            "stop_words": {
+              "type": "object",
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "custom_words": { "type": "array", "items": { "type": "string" } }
+              }
+            },
+            "fuzzy_matching": {
+              "type": "object",
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "max_distance": { "type": "integer", "minimum": 1, "maximum": 5 }
+              }
+            }
+          }
+        },
+        "faceting": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "max_facets": { "type": "integer", "minimum": 1, "maximum": 50 },
+            "max_facet_values": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "synthesis": {
+      "type": "object",
+      "description": "Response synthesis configuration",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "default_method": {
+          "type": "string",
+          "enum": ["consensus", "weighted_merge", "best_of", "comprehensive", "extractive", "abstractive"]
+        },
+        "quality_threshold": { "type": "number", "minimum": 0.1, "maximum": 1.0 },
+        "max_response_length": { "type": "integer", "minimum": 100, "maximum": 100000 },
+        "quality_weights": {
+          "type": "object",
+          "properties": {
+            "accuracy": { "type": "number", "minimum": 0, "maximum": 1 },
+            "completeness": { "type": "number", "minimum": 0, "maximum": 1 },
+            "clarity": { "type": "number", "minimum": 0, "maximum": 1 },
+            "novelty": { "type": "number", "minimum": 0, "maximum": 1 },
+            "relevance": { "type": "number", "minimum": 0, "maximum": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "logging": {
+      "type": "object",
+      "description": "Logging configuration",
+      "properties": {
+        "level": { "type": "string", "enum": ["debug", "info", "warn", "error", "fatal"] },
+        "format": { "type": "string", "enum": ["json", "text"] },
+        "console": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "colorize": { "type": "boolean" }
+          }
+        },
+        "file": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "filename": { "type": "string" },
+            "max_size": { "type": "integer", "minimum": 1048576 },
+            "max_files": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "rotate": { "type": "boolean" }
+          }
+        },
+        "sensitive_fields": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "security": {
+      "type": "object",
+      "description": "Security configuration",
+      "properties": {
+        "api_key_validation": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "min_length": { "type": "integer", "minimum": 8, "maximum": 256 }
+          }
+        },
+        "rate_limiting": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "global_limit": {
+              "type": "object",
+              "properties": {
+                "requests_per_minute": { "type": "integer", "minimum": 1 },
+                "burst_size": { "type": "integer", "minimum": 1 }
+              }
+            }
+          }
+        },
+        "request_limits": {
+          "type": "object",
+          "properties": {
+            "max_request_size": { "type": "integer", "minimum": 1024 },
+            "max_prompt_length": { "type": "integer", "minimum": 1 },
+            "max_response_length": { "type": "integer", "minimum": 1 }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "performance": {
+      "type": "object",
+      "description": "Performance configuration",
+      "properties": {
+        "timeouts": {
+          "type": "object",
+          "properties": {
+            "request": { "type": "integer", "minimum": 1000 },
+            "provider": { "type": "integer", "minimum": 1000 },
+            "strategy": { "type": "integer", "minimum": 1000 },
+            "total": { "type": "integer", "minimum": 1000 }
+          }
+        },
+        "concurrency": {
+          "type": "object",
+          "properties": {
+            "max_concurrent_requests": { "type": "integer", "minimum": 1, "maximum": 1000 },
+            "max_concurrent_providers": { "type": "integer", "minimum": 1, "maximum": 20 },
+            "queue_size": { "type": "integer", "minimum": 1, "maximum": 10000 }
+          }
+        },
+        "memory": {
+          "type": "object",
+          "properties": {
+            "max_heap_size": { "type": "integer", "minimum": 128 },
+            "gc_interval": { "type": "integer", "minimum": 1000 }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "development": {
+      "type": "object",
+      "description": "Development and debugging configuration",
+      "properties": {
+        "debug_mode": { "type": "boolean", "default": false },
+        "verbose_logging": { "type": "boolean", "default": false },
+        "mock_providers": { "type": "boolean", "default": false },
+        "disable_cache": { "type": "boolean", "default": false },
+        "enable_profiling": { "type": "boolean", "default": false },
+        "testing": {
+          "type": "object",
+          "properties": {
+            "mock_responses": { "type": "boolean" },
+            "deterministic_ids": { "type": "boolean" },
+            "fixed_timestamps": { "type": "boolean" }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "features": {
+      "type": "object",
+      "description": "Feature flags",
+      "properties": {
+        "collaboration": { "type": "boolean", "default": true },
+        "caching": { "type": "boolean", "default": true },
+        "metrics": { "type": "boolean", "default": true },
+        "search": { "type": "boolean", "default": true },
+        "synthesis": { "type": "boolean", "default": true },
+        "backup": { "type": "boolean", "default": true },
+        "health_checks": { "type": "boolean", "default": true },
+        "auto_scaling": { "type": "boolean", "default": false }
+      },
+      "additionalProperties": false
+    },
+    "tools": {
+      "type": "object",
+      "description": "Tool-specific configurations",
+      "properties": {
+        "enabled": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["collaborate", "review", "compare", "refine"]
+          }
+        },
+        "collaborate": {
+          "type": "object",
+          "properties": {
+            "max_providers": { "type": "integer", "minimum": 1, "maximum": 10 },
+            "timeout": { "type": "integer", "minimum": 10000 }
+          }
+        },
+        "review": {
+          "type": "object",
+          "properties": {
+            "require_consensus": { "type": "boolean" },
+            "min_reviewers": { "type": "integer", "minimum": 1, "maximum": 5 }
+          }
+        },
+        "compare": {
+          "type": "object",
+          "properties": {
+            "max_items": { "type": "integer", "minimum": 2, "maximum": 20 },
+            "detailed_analysis": { "type": "boolean" }
+          }
+        },
+        "refine": {
+          "type": "object",
+          "properties": {
+            "max_iterations": { "type": "integer", "minimum": 1, "maximum": 10 },
+            "improvement_threshold": { "type": "number", "minimum": 0.01, "maximum": 1.0 }
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["server"],
+  "additionalProperties": false
+}

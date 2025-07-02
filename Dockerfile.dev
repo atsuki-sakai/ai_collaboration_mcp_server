@@ -1,0 +1,42 @@
+# Development Dockerfile for Claude Code AI Collaboration MCP Server
+# Optimized for development with hot reloading
+
+FROM node:18-alpine
+
+# Set environment variables
+ENV NODE_ENV=development
+
+# Set working directory
+WORKDIR /app
+
+# Install pnpm
+RUN npm install -g pnpm@8
+
+# Install development tools
+RUN apk add --no-cache \
+    git \
+    curl \
+    bash
+
+# Copy package files
+COPY package.json pnpm-lock.yaml ./
+
+# Install all dependencies (including dev dependencies)
+RUN pnpm install --frozen-lockfile
+
+# Copy source code
+COPY . .
+
+# Create directories
+RUN mkdir -p /app/logs /app/dist
+
+# Expose port
+EXPOSE 3000
+
+# Development command with hot reload
+CMD ["pnpm", "run", "dev"]
+
+# Labels
+LABEL org.opencontainers.image.title="Claude Code AI Collaboration MCP Server (Development)"
+LABEL org.opencontainers.image.description="Development image with hot reloading"
+LABEL org.opencontainers.image.version="1.0.0-dev"

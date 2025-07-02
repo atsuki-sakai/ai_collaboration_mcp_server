@@ -1,0 +1,65 @@
+# Default Configuration
+# Claude Code AI Collaboration MCP Server
+
+server:
+  name: claude-code-ai-collab-mcp
+  version: 1.0.0
+  log_level: info
+  port: 3000
+  host: localhost
+
+providers:
+  - name: deepseek
+    enabled: true
+    api_key: ${DEEPSEEK_API_KEY}
+    base_url: https://api.deepseek.com
+    timeout: 30000
+    max_retries: 3
+    default_model: deepseek-coder
+
+  - name: anthropic
+    enabled: true
+    api_key: ${ANTHROPIC_API_KEY}
+    base_url: https://api.anthropic.com
+    timeout: 30000
+    max_retries: 3
+    default_model: claude-3-sonnet-20240229
+
+  - name: openai
+    enabled: false
+    api_key: ${OPENAI_API_KEY}
+    base_url: https://api.openai.com/v1
+    timeout: 30000
+    max_retries: 3
+    default_model: gpt-4
+
+strategies:
+  default: parallel
+  timeout: 60000
+  max_iterations: 3
+  consensus_threshold: 0.7
+
+cache:
+  enabled: true
+  type: memory
+  ttl: 3600
+  max_size: 1000
+
+metrics:
+  enabled: true
+  collection_interval: 5000
+
+tools:
+  enabled:
+    - collaborate
+    - review
+    - compare
+    - refine
+  
+  collaborate:
+    max_providers: 3
+    timeout: 120000
+  
+  review:
+    require_consensus: true
+    min_reviewers: 2
