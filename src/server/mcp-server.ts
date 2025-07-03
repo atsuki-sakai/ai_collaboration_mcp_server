@@ -70,9 +70,11 @@ export interface MCPToolDefinition {
   name: string;
   description: string;
   inputSchema: {
+    $schema: string;
     type: 'object';
     properties: Record<string, unknown>;
     required?: string[];
+    additionalProperties?: boolean;
   };
 }
 
@@ -312,9 +314,11 @@ export class MCPServer {
         name: toolName,
         description: toolsInfo[toolName]?.description || `${toolName} tool`,
         inputSchema: {
+          $schema: 'https://json-schema.org/draft/2020-12/schema',
           type: 'object' as const,
           properties: toolsInfo[toolName]?.parameters || {},
-          required: []
+          required: [],
+          additionalProperties: false
         }
       }));
     } catch (error) {
