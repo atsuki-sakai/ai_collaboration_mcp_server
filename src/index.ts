@@ -25,8 +25,8 @@ async function main() {
     // ロガーの取得
     logger = container.get<Logger>(TYPES.Logger);
     
-    // スタンドアロンモードでのみ起動メッセージを表示
-    const isMCPMode = process.env.MCP_PROTOCOL === 'stdio';
+    // MCPモードまたはstdoutがTTYでない場合は起動メッセージを抑制
+    const isMCPMode = process.env.MCP_PROTOCOL === 'stdio' || !process.stdout.isTTY;
     if (!isMCPMode) {
       console.log('\n🚀 Claude Code AI Collaboration MCP Server');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');

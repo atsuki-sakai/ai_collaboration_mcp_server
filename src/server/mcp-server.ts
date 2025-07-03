@@ -157,8 +157,8 @@ export class MCPServer {
       
       this.metricsCollector.timing('server_init_duration_ms', initTime);
       
-      // スタンドアロンモードでは詳細な起動メッセージ
-      const isMCPMode = process.env.MCP_PROTOCOL === 'stdio';
+      // MCPモードまたはstdoutがTTYでない場合は詳細メッセージを抑制
+      const isMCPMode = process.env.MCP_PROTOCOL === 'stdio' || !process.stdout.isTTY;
       if (!isMCPMode) {
         console.log('\n✨ Server started successfully!');
         console.log(`📡 Protocol: ${this.config.server?.protocol || 'stdio'}`);
@@ -426,7 +426,7 @@ export class MCPServer {
 
   private async initializeProviders(): Promise<void> {
     const enabledProviders = this.config.providers?.enabled || [];
-    const isMCPMode = process.env.MCP_PROTOCOL === 'stdio';
+    const isMCPMode = process.env.MCP_PROTOCOL === 'stdio' || !process.stdout.isTTY;
     
     // スタンドアロンモードでは進捗を表示
     if (!isMCPMode && enabledProviders.length > 0) {
