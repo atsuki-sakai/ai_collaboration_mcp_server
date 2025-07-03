@@ -48,14 +48,23 @@ export class Logger implements ILogger {
   constructor(config: LoggerConfig = {}) {
     const transports: winston.transport[] = config.transports || [];
     
-    // デフォルトでコンソール出力を追加
+    // デフォルトでコンソール出力を追加（他のトランスポートが指定されていない場合のみ）
     if (transports.length === 0) {
+      // MCPサーバーがstdioプロトコルで動作している場合、
+      // 標準出力にログを出力するとプロトコルのJSON-RPCメッセージと衝突し
+      // Claude Desktop 側でパースエラー (ZodError) が発生する。
+      // そのため stdio モードでは **すべてのログレベル** を標準エラー出力に振り分ける。
+
+      const isStdioMode = process.env.MCP_PROTOCOL === 'stdio';
+
       transports.push(
         new winston.transports.Console({
           format: winston.format.combine(
             winston.format.colorize(),
             winston.format.simple()
-          )
+          ),
+          // stdio モードでは全レベルを stderr に送る
+          stderrLevels: isStdioMode ? (Object.keys(winston.config.npm.levels) as string[]) : ['error']
         })
       );
     }
