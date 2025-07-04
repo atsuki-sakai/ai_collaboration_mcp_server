@@ -20,6 +20,7 @@ import { DeepSeekProvider } from '../providers/deepseek-provider.js';
 import { OpenAIProvider } from '../providers/openai-provider.js';
 import { AnthropicProvider } from '../providers/anthropic-provider.js';
 import { O3Provider } from '../providers/o3-provider.js';
+import { LLMStudioProvider } from '../providers/llmstudio-provider.js';
 
 import { TYPES } from './types.js';
 
@@ -194,6 +195,12 @@ export function bindDependencies(
       .inSingletonScope();
   }
 
+  if (!container.isBound(TYPES.LLMStudioProvider)) {
+    container.bind<IBaseProvider>(TYPES.LLMStudioProvider)
+      .to(LLMStudioProvider)
+      .inSingletonScope();
+  }
+
   // Provider Manager
   if (!container.isBound(TYPES.ProviderManager)) {
     container.bind<IProviderManager>(TYPES.ProviderManager)
@@ -245,12 +252,14 @@ export const ServiceFactory = {
   createOpenAIProvider: (): OpenAIProvider => new OpenAIProvider(),
   createAnthropicProvider: (): AnthropicProvider => new AnthropicProvider(),
   createO3Provider: (): O3Provider => new O3Provider(),
+  createLLMStudioProvider: (): LLMStudioProvider => new LLMStudioProvider(),
   createProviderManager: (
     deepSeek: DeepSeekProvider,
     openAI: OpenAIProvider,
     anthropic: AnthropicProvider,
-    o3: O3Provider
-  ): ProviderManager => new ProviderManager(deepSeek, openAI, anthropic, o3),
+    o3: O3Provider,
+    llmstudio?: LLMStudioProvider
+  ): ProviderManager => new ProviderManager(deepSeek, openAI, anthropic, o3, llmstudio ?? new LLMStudioProvider()),
   createStrategyManager: (providerManager: ProviderManager): StrategyManager => 
     new StrategyManager(providerManager),
   createToolManager: (strategyManager: StrategyManager, providerManager: ProviderManager): ToolManager =>
@@ -284,6 +293,7 @@ export function validateContainer(container: Container): boolean {
     TYPES.OpenAIProvider,
     TYPES.AnthropicProvider,
     TYPES.O3Provider,
+    TYPES.LLMStudioProvider,
     TYPES.ProviderManager,
     TYPES.StrategyManager,
     TYPES.ToolManager,
