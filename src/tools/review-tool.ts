@@ -300,7 +300,8 @@ export class ReviewTool {
       'anthropic': ['academic', 'business', 'technical_documentation'],
       'deepseek': ['code', 'technical_documentation'],
       'o3': ['academic', 'complex_reasoning'],
-      'gemini': ['general_text', 'documentation']
+      'gemini': ['general_text', 'documentation'],
+      'llmstudio': ['general_text', 'code']
     };
 
     const suitableProviders = availableProviders.filter(provider => {
@@ -396,7 +397,7 @@ export class ReviewTool {
       'balanced_review': 'Please provide a balanced review highlighting both strengths and areas for improvement.'
     };
 
-    prompt += `Review approach: ${(approachInstructions as any)[approach] || approachInstructions['balanced_review']}\n\n`;
+    prompt += `Review approach: ${(approachInstructions as Record<string, string>)[approach] || approachInstructions['balanced_review']}\n\n`;
 
     // 基準の追加
     if (criteria) {
@@ -508,7 +509,7 @@ Be specific and provide examples where possible.`;
     // 空の配列は削除
     if (feedback.critical_issues.length === 0) {
       if ('critical_issues' in feedback) {
-        delete (feedback as any).critical_issues;
+        delete (feedback as Record<string, unknown>).critical_issues;
       }
     }
 
@@ -624,7 +625,7 @@ Be specific and provide examples where possible.`;
     for (let i = 0; i < items.length; i++) {
       if (used.has(i)) continue;
       
-      let consolidatedItem = items[i];
+      const consolidatedItem = items[i];
       used.add(i);
 
       // 類似項目を探して統合
@@ -673,7 +674,7 @@ Be specific and provide examples where possible.`;
       'poor': 'The content needs substantial revision across multiple areas.'
     };
 
-    return (summaries as any)[rating] || 'Review completed.';
+    return (summaries as Record<string, string>)[rating] || 'Review completed.';
   }
 
   private aggregateMetrics(reviews: ReviewResult['detailed_reviews']): ReviewResult['aggregated_metrics'] {
