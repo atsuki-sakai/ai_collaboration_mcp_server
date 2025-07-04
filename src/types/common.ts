@@ -33,7 +33,7 @@ export type Framework =
   | 'fastapi';
 
 // AI・問題関連
-export type AIProvider = 'deepseek' | 'openai' | 'o3' | 'anthropic' | 'gemini';
+export type AIProvider = 'deepseek' | 'openai' | 'o3' | 'anthropic' | 'gemini' | 'llmstudio';
 export type ProblemType = 
   | 'coding' 
   | 'debugging' 
