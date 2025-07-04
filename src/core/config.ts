@@ -37,7 +37,7 @@ const CONFIG_SCHEMA = {
         properties: {
           name: { 
             type: 'string', 
-            enum: ['deepseek', 'openai', 'o3', 'anthropic', 'gemini'] 
+            enum: ['deepseek', 'openai', 'o3', 'anthropic', 'gemini', 'llmstudio'] 
           },
           enabled: { type: 'boolean' },
           api_key: { type: 'string' },
