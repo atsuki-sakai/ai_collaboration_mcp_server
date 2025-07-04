@@ -17,6 +17,7 @@ export const TYPES = {
   OpenAIProvider: Symbol.for('OpenAIProvider'),
   AnthropicProvider: Symbol.for('AnthropicProvider'),
   O3Provider: Symbol.for('O3Provider'),
+  LLMStudioProvider: Symbol.for('LLMStudioProvider'),
   // Managers
   ProviderManager: Symbol.for('ProviderManager'),
   StrategyManager: Symbol.for('StrategyManager'),
