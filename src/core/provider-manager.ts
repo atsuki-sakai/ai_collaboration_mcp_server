@@ -41,13 +41,15 @@ export class ProviderManager implements IProviderManager {
     @inject(TYPES.DeepSeekProvider) private deepSeekProvider: IBaseProvider,
     @inject(TYPES.OpenAIProvider) private openAIProvider: IBaseProvider,
     @inject(TYPES.AnthropicProvider) private anthropicProvider: IBaseProvider,
-    @inject(TYPES.O3Provider) private o3Provider: IBaseProvider
+    @inject(TYPES.O3Provider) private o3Provider: IBaseProvider,
+    @inject(TYPES.LLMStudioProvider) private llmStudioProvider: IBaseProvider
   ) {
     // プロバイダーマップの初期化
     this.providers.set('deepseek', this.deepSeekProvider);
     this.providers.set('openai', this.openAIProvider);
     this.providers.set('anthropic', this.anthropicProvider);
     this.providers.set('o3', this.o3Provider);
+    this.providers.set('llmstudio', this.llmStudioProvider);
   }
 
   async initializeProvider(provider: AIProvider, config: ProviderConfig): Promise<void> {
